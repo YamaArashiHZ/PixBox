@@ -19,12 +19,13 @@ const thumbSrc = (item: FeedItem) =>
 </script>
 
 <template>
-  <div class="selected-tray" v-if="items.length > 0 || saving">
+  <div class="selected-tray">
     <div class="tray-bar">
       <div class="tray-info">
         <span class="tray-count">已选 {{ items.length }} 张</span>
         <n-button
           type="primary"
+          :disabled="items.length === 0"
           :loading="saving"
           @click="emit('save')"
         >
@@ -63,8 +64,13 @@ const thumbSrc = (item: FeedItem) =>
 
 <style scoped>
 .selected-tray {
-  flex-shrink: 0;
-  margin-top: auto;
+  position: fixed;
+  bottom: 0;
+  left: var(--nav-width);
+  right: 0;
+  z-index: 100;
+  padding: 0 24px 20px 24px;
+  pointer-events: none;
 }
 
 .tray-bar {
@@ -73,8 +79,9 @@ const thumbSrc = (item: FeedItem) =>
   border: 1px solid var(--border-color);
   background: var(--preview-bg);
   backdrop-filter: blur(12px);
+  pointer-events: auto;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
-  max-height: 220px;
+  min-height: 185px;
   display: flex;
   flex-direction: column;
   overflow: hidden;

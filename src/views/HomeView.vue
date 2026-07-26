@@ -134,7 +134,7 @@ function handleRemoveFromTray(key: string) {
 </script>
 
 <template>
-  <div class="home">
+  <div class="home" :style="{ paddingBottom: '200px' }">
     <template v-if="!auth.user">
       <div class="login-state">
         <NIcon :component="ImageOutline" :size="48" color="#5b7cfa" />
@@ -159,8 +159,9 @@ function handleRemoveFromTray(key: string) {
           :model-value="feed.kind"
           @update:model-value="handleFeedChange"
         />
-        <NButton circle quaternary size="small" :loading="feed.loading" @click="feed.load(feed.kind)">
-          <NIcon :component="RefreshOutline" :size="16" />
+        <NButton circle quaternary size="large" @click="feed.load(feed.kind)" :disabled="feed.loading">
+          <NSpin v-if="feed.loading" :size="18" />
+          <NIcon v-else :component="RefreshOutline" :size="20" />
         </NButton>
       </div>
 
@@ -243,6 +244,7 @@ function handleRemoveFromTray(key: string) {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 2px 0;
 }
 
 .feed-error {
