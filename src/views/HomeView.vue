@@ -56,7 +56,7 @@ watch(
   () => auth.user,
   (u) => {
     if (u) feed.load("following");
-    else feed.items = [];
+    else feed.clearItems();
   },
   { immediate: true }
 );
@@ -197,8 +197,12 @@ function handleRemoveFromTray(key: string) {
           :artist="item.artist"
           :is-bookmarked="item.is_bookmarked"
           :selected="feed.isSelected(item.key)"
+          :page="item.page"
+          :page-count="item.page_count"
+          :expanded="feed.isExpanded(item.illust_id)"
           @toggle="feed.toggleSelect(item.key)"
           @preview="openLightbox(item.key)"
+          @expand="feed.toggleExpand(item.illust_id)"
         />
         </div>
       </div>

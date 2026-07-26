@@ -10,6 +10,7 @@ export interface FeedItem {
   key: string
   illust_id: number
   page: number
+  page_count: number
   thumb_b64: string
   large_url: string
   original_url: string

@@ -5,12 +5,24 @@ import { fetchFeed, type FeedItem } from '../api'
 export type FeedKind = 'following' | 'recommended'
 
 export const useFeedStore = defineStore('feed', () => {
-  const items = ref<FeedItem[]>([])
+  const allItems = ref<FeedItem[]>([])
   const kind = ref<FeedKind>('following')
   const nextUrl = ref<string | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
   const selectedKeys = ref<Set<string>>(new Set())
+  const expandedIds = ref<Set<number>>(new Set())
+
+  const items = computed<FeedItem[]>(() => {
+    const seen = new Set<number>()
+    return allItems.value.filter((item) => {
+      if (seen.has(item.illust_id)) {
+        return expandedIds.value.has(item.illust_id)
+      }
+      seen.add(item.illust_id)
+      return true
+    })
+  })
 
   const isEmpty = computed(() => items.value.length === 0 && !loading.value)
 
@@ -32,15 +44,30 @@ export const useFeedStore = defineStore('feed', () => {
     selectedKeys.value = new Set()
   }
 
+  function toggleExpand(illustId: number) {
+    const s = new Set(expandedIds.value)
+    if (s.has(illustId)) {
+      s.delete(illustId)
+    } else {
+      s.add(illustId)
+    }
+    expandedIds.value = s
+  }
+
+  function isExpanded(illustId: number): boolean {
+    return expandedIds.value.has(illustId)
+  }
+
   async function load(k: FeedKind) {
     kind.value = k
-    items.value = []
+    allItems.value = []
     nextUrl.value = null
     error.value = null
+    expandedIds.value = new Set()
     loading.value = true
     try {
       const page = await fetchFeed(k === 'recommended' ? 'recommended' : 'following')
-      items.value = page.items
+      allItems.value = page.items
       nextUrl.value = page.next_url
     } catch (e) {
       error.value = String(e)
@@ -54,13 +81,17 @@ export const useFeedStore = defineStore('feed', () => {
     loading.value = true
     try {
       const page = await fetchFeed(kind.value, nextUrl.value)
-      items.value.push(...page.items)
+      allItems.value.push(...page.items)
       nextUrl.value = page.next_url
     } catch (e) {
       error.value = String(e)
     } finally {
       loading.value = false
     }
+  }
+
+  function clearItems() {
+    allItems.value = []
   }
 
   return {
@@ -74,6 +105,9 @@ export const useFeedStore = defineStore('feed', () => {
     toggleSelect,
     isSelected,
     clearSelection,
+    toggleExpand,
+    isExpanded,
+    clearItems,
     load,
     loadMore,
   }
