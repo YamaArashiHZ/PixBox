@@ -11,8 +11,8 @@ use crate::http;
 use crate::compress;
 use crate::download;
 
-pub const CLIENT_ID: &str = "MOBrBDSpEjvOejkFtfsYSHt9CPqaNFKS";
-pub const CLIENT_SECRET: &str = "mP7BAmUuSqFrxRGKjEtt6Gyw0KU8XxRt9smQrw6WUmpN2Sjb";
+pub const CLIENT_ID: &str = "MOBrBDS8blbauoSck0ZfDbtuzpyT";
+pub const CLIENT_SECRET: &str = "lsACyCD94FhDUtGTXi3QzcFE2uU1hqtDaKeqrdwj";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PixivUser {
@@ -57,10 +57,11 @@ fn extract_code_from_url(url: &str) -> Option<String> {
     let prefix = "pixiv://account/login?code=";
     if let Some(pos) = url.find(prefix) {
         let code_part = &url[pos + prefix.len()..];
-        if let Some(end) = code_part.find('&') {
-            return Some(code_part[..end].to_string());
+        let end = code_part.find('&').unwrap_or(code_part.len());
+        let code = code_part[..end].to_string();
+        if !code.is_empty() {
+            return Some(code);
         }
-        return Some(code_part.to_string());
     }
     None
 }
@@ -72,7 +73,7 @@ async fn exchange_token(client: &Client, code: &str, verifier: &str) -> Result<T
         ("grant_type", "authorization_code"),
         ("code", code),
         ("code_verifier", verifier),
-        ("redirect_uri", "pixiv://account/login"),
+        ("redirect_uri", "https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback"),
     ];
 
     let resp = client
@@ -153,7 +154,10 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
         .inner_size(800.0, 700.0)
         .center()
         .on_navigation(move |nav_url| {
-            if let Some(code) = extract_code_from_url(nav_url.as_str()) {
+            let s = nav_url.as_str();
+            eprintln!("[OAuth nav] {}", s);
+            if let Some(code) = extract_code_from_url(s) {
+                eprintln!("[OAuth code] {}", code);
                 if let Some(tx) = tx_nav.lock().unwrap().take() {
                     let _ = tx.send(Ok(code));
                 }
@@ -167,6 +171,7 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     let tx_close = tx.clone();
     let window_handle = window.clone();
     window.on_window_event(move |event| {
+        eprintln!("[OAuth event] {:?}", event);
         if let tauri::WindowEvent::Destroyed = event {
             if let Some(tx) = tx_close.lock().unwrap().take() {
                 let _ = tx.send(Err("用户取消了登录".into()));
@@ -177,13 +182,19 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     let code = match rx.await {
         Ok(Ok(code)) => code,
         Ok(Err(e)) => {
+            eprintln!("[OAuth] login cancelled: {e}");
             window_handle.close().ok();
             return Err(e);
         }
-        Err(_) => return Err("登录流程异常".into()),
+        Err(_) => {
+            eprintln!("[OAuth] channel error");
+            return Err("登录流程异常".into());
+        }
     };
 
-    window_handle.close().map_err(|e| e.to_string())?;
+    window_handle.close().ok();
+
+    eprintln!("[OAuth] exchanging token for code: {}", &code[..code.len().min(8)]);
 
     let token = {
         let client = state.client.lock().unwrap().take().ok_or("HTTP 客户端未初始化")?;
@@ -191,6 +202,8 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
         state.client.lock().unwrap().replace(client);
         result?
     };
+
+    eprintln!("[OAuth] token received, user: {}", token.user.name);
 
     let token_data = TokenData {
         refresh_token: token.refresh_token.clone(),

@@ -5,6 +5,7 @@ import { startOauth, getLoginStatus, logout, type PixivUser } from '../api'
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<PixivUser | null>(null)
   const loading = ref(false)
+  const error = ref<string | null>(null)
 
   async function checkLogin() {
     try {
@@ -17,14 +18,19 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login() {
     loading.value = true
+    error.value = null
     try {
       const u = await startOauth()
       user.value = u
     } catch (e) {
-      console.error('Login failed:', e)
+      error.value = String(e)
     } finally {
       loading.value = false
     }
+  }
+
+  function clearError() {
+    error.value = null
   }
 
   async function doLogout() {
@@ -36,5 +42,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
-  return { user, loading, checkLogin, login, doLogout }
+  return { user, loading, error, checkLogin, login, clearError, doLogout }
 })

@@ -8,6 +8,7 @@ import {
   NEmpty,
   NSpin,
   NProgress,
+  NTag,
   useMessage,
 } from "naive-ui";
 import { RefreshOutline, SaveOutline, ImageOutline } from "@vicons/ionicons5";
@@ -142,6 +143,9 @@ function handleRemoveFromTray(key: string) {
         <NButton type="primary" size="large" :loading="auth.loading" @click="auth.login()">
           {{ auth.loading ? "登录中..." : "登录 Pixiv" }}
         </NButton>
+        <NTag v-if="auth.error" type="error" size="small" :bordered="false" closable @close="auth.clearError()">
+          {{ auth.error }}
+        </NTag>
       </div>
     </template>
 
