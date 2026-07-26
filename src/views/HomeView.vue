@@ -170,11 +170,14 @@ function handleRemoveFromTray(key: string) {
 
       <div
         v-if="feed.items.length > 0"
-        ref="scrollContainer"
-        class="feed-scroll"
-        @scroll="handleScroll"
-        @wheel.passive="onWheel"
+        class="feed-wrapper"
       >
+        <div
+          ref="scrollContainer"
+          class="feed-scroll"
+          @scroll="handleScroll"
+          @wheel.passive="onWheel"
+        >
         <ImageCard
           v-for="item in feed.items"
           :key="item.key"
@@ -186,6 +189,7 @@ function handleRemoveFromTray(key: string) {
           @toggle="feed.toggleSelect(item.key)"
           @preview="openLightbox(item.key)"
         />
+        </div>
       </div>
 
       <div v-if="feed.loading && feed.items.length > 0" class="feed-loading">
@@ -219,17 +223,20 @@ function handleRemoveFromTray(key: string) {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
+  height: calc(100vh - 44px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .login-state {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
   gap: 16px;
-  min-height: 60vh;
+  flex: 1;
 }
 
 .feed-header {
@@ -250,13 +257,20 @@ function handleRemoveFromTray(key: string) {
   padding: 48px 0;
 }
 
+.feed-wrapper {
+  flex: 1;
+  min-height: 0;
+  max-height: 480px;
+  overflow: hidden;
+}
+
 .feed-scroll {
   display: flex;
   gap: 12px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 8px;
-  flex: 1;
+  padding-bottom: 0;
+  height: 100%;
 }
 
 .feed-scroll::-webkit-scrollbar {

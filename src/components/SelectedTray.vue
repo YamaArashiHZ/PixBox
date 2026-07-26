@@ -25,11 +25,10 @@ const thumbSrc = (item: FeedItem) =>
         <span class="tray-count">已选 {{ items.length }} 张</span>
         <n-button
           type="primary"
-          size="small"
           :loading="saving"
           @click="emit('save')"
         >
-          <n-icon :component="SaveOutline" :size="14" style="margin-right: 4px" />
+          <n-icon :component="SaveOutline" :size="16" style="margin-right: 6px" />
           {{ saving ? "保存中..." : `保存图片 (${items.length})` }}
         </n-button>
       </div>
@@ -64,45 +63,68 @@ const thumbSrc = (item: FeedItem) =>
 
 <style scoped>
 .selected-tray {
-  position: sticky;
-  bottom: 0;
-  z-index: 100;
+  flex-shrink: 0;
   margin-top: auto;
 }
 
 .tray-bar {
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 14px;
+  padding: 16px 20px;
   border: 1px solid var(--border-color);
   background: var(--preview-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
+  max-height: 220px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .tray-info {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .tray-count {
-  font-size: 14px;
-  opacity: 0.65;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .tray-progress {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .tray-thumbs {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  flex: 1;
+}
+
+.tray-thumbs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tray-thumbs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tray-thumbs::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 2px;
 }
 
 .tray-thumb {
   position: relative;
-  width: 56px;
-  height: 56px;
+  flex-shrink: 0;
+  width: 100px;
+  height: 100px;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -121,10 +143,10 @@ const thumbSrc = (item: FeedItem) =>
 
 .tray-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
   border: none;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);

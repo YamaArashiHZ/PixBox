@@ -55,8 +55,10 @@ const thumbSrc = props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "
 <style scoped>
 .image-card {
   position: relative;
-  width: 200px;
-  min-width: 200px;
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: 2/3;
+  flex-shrink: 0;
   border-radius: 12px;
   overflow: hidden;
   transition: box-shadow 0.18s ease;
@@ -74,8 +76,8 @@ const thumbSrc = props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "
 }
 
 .image-wrap {
-  width: 200px;
-  height: 280px;
+  width: 100%;
+  height: calc(100% - 52px);
   overflow: hidden;
   border: none;
   background: none;
@@ -114,7 +116,7 @@ const thumbSrc = props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "
 
 .preview-btn {
   position: absolute;
-  bottom: 52px;
+  bottom: 60px;
   right: 8px;
   opacity: 0;
   transition: opacity 0.18s ease;
@@ -125,10 +127,12 @@ const thumbSrc = props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "
 }
 
 .card-info {
+  height: 52px;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  justify-content: center;
 }
 
 .artist {
