@@ -275,6 +275,9 @@ struct MetaPage {
 
 #[derive(Debug, Deserialize)]
 struct MetaImageUrls {
+    square_medium: Option<String>,
+    medium: Option<String>,
+    large: Option<String>,
     original: Option<String>,
 }
 
@@ -330,11 +333,11 @@ fn expand_illust(illust: &PixivIllust) -> Vec<(u32, String, String, String)> {
             .enumerate()
             .map(|(i, page)| {
                 let original = page.image_urls.original.as_deref().unwrap_or("");
-                let large = illust
+                let large = page
                     .image_urls
                     .large
                     .as_deref()
-                    .unwrap_or_else(|| illust.image_urls.medium.as_deref().unwrap_or(""));
+                    .unwrap_or_else(|| page.image_urls.medium.as_deref().unwrap_or(""));
                 (
                     i as u32,
                     thumb.to_string(),

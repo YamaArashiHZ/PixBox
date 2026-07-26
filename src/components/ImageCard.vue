@@ -41,7 +41,7 @@ const thumbSrc = props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "
       @click.stop
     />
 
-    <NTooltip v-if="pageCount > 1" :delay="300">
+    <NTooltip v-if="pageCount > 1 && page === 0" :delay="300">
       <template #trigger>
         <button class="page-badge" @click.stop="emit('expand')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

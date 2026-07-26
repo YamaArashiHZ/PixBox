@@ -25,7 +25,6 @@ const message = useMessage();
 const auth = useAuthStore();
 const feed = useFeedStore();
 
-const scrollContainer = ref<HTMLElement | null>(null);
 const lightboxVisible = ref(false);
 const lightboxKey = ref("");
 const saving = ref(false);
@@ -47,6 +46,8 @@ const lightboxAllItems = computed(() =>
 const lightboxItem = computed(() =>
   feed.items.find((i) => i.key === lightboxKey.value)
 );
+
+const showLeftBtn = ref(false);
 
 onMounted(() => {
   auth.checkLogin();
@@ -74,23 +75,93 @@ function handleFeedChange(kind: string) {
   feed.load(kind as FeedKind);
 }
 
-function handleScroll() {
-  const el = scrollContainer.value;
-  if (!el) return;
-  const { scrollLeft, scrollWidth, clientWidth } = el;
-  if (scrollLeft + clientWidth >= scrollWidth * 0.8) {
+const CARD_GAP = 12;
+let scrollAnimRaf = 0;
+let scrollTarget = 0;
+
+function cardWidth(): number {
+  const el = document.querySelector('.feed-scroll');
+  if (!el) return 200;
+  const first = el.querySelector('.card-wrap');
+  return first ? (first as HTMLElement).offsetWidth : (el.clientHeight * 2) / 3;
+}
+
+function getScrollEl(): HTMLElement | null {
+  return document.querySelector('.feed-scroll');
+}
+
+function animateScroll() {
+  const el = getScrollEl();
+  if (!el) { scrollAnimRaf = 0; return; }
+  const cur = el.scrollLeft;
+  const diff = scrollTarget - cur;
+  if (Math.abs(diff) < 0.5) {
+    el.scrollLeft = scrollTarget;
+    scrollAnimRaf = 0;
+    showLeftBtn.value = scrollTarget > 1;
+    checkLoadMore(el);
+    return;
+  }
+  el.scrollLeft = cur + diff * 0.2;
+  scrollAnimRaf = requestAnimationFrame(animateScroll);
+}
+
+function cancelScrollAnim() {
+  if (scrollAnimRaf) {
+    cancelAnimationFrame(scrollAnimRaf);
+    scrollAnimRaf = 0;
+  }
+}
+
+function scrollTo(target: number) {
+  cancelScrollAnim();
+  scrollTarget = Math.max(0, target);
+  showLeftBtn.value = scrollTarget > 1;
+  scrollAnimRaf = requestAnimationFrame(animateScroll);
+}
+
+function checkLoadMore(el: HTMLElement) {
+  if (el.scrollLeft + el.clientWidth >= el.scrollWidth * 0.8) {
     feed.loadMore();
   }
 }
 
 function onWheel(e: WheelEvent) {
-  if (!scrollContainer.value) return;
+  const el = e.currentTarget as HTMLElement;
+  if (!el) return;
   e.preventDefault();
-  scrollContainer.value.scrollLeft += e.deltaY;
+  const step = cardWidth() + CARD_GAP;
+  const dir = e.deltaY > 0 ? 1 : -1;
+  const cur = scrollAnimRaf ? scrollTarget : el.scrollLeft;
+  const target = cur + dir * step;
+  const max = el.scrollWidth - el.clientWidth;
+  scrollTo(Math.max(0, Math.min(target, max)));
 }
 
-function openLightbox(key: string) {
-  lightboxKey.value = key;
+function arrowStep(): number {
+  const el = getScrollEl();
+  if (!el) return cardWidth() + CARD_GAP;
+  const cardW = cardWidth() + CARD_GAP;
+  const cardsPerRow = Math.floor(el.clientWidth / cardW);
+  return Math.max(1, cardsPerRow - 1) * cardW;
+}
+
+function pageBackward() {
+  const el = getScrollEl();
+  if (!el) return;
+  const cur = scrollAnimRaf ? scrollTarget : el.scrollLeft;
+  scrollTo(Math.max(0, cur - arrowStep()));
+}
+
+function pageForward() {
+  const el = getScrollEl();
+  if (!el) return;
+  const cur = scrollAnimRaf ? scrollTarget : el.scrollLeft;
+  scrollTo(Math.min(el.scrollWidth - el.clientWidth, cur + arrowStep()));
+}
+
+function openLightbox(item: FeedItem) {
+  lightboxKey.value = item.key;
   lightboxVisible.value = true;
 }
 
@@ -183,28 +254,32 @@ function handleRemoveFromTray(key: string) {
         v-if="feed.items.length > 0"
         class="feed-wrapper"
       >
-        <div
-          ref="scrollContainer"
+        <button v-if="showLeftBtn" class="scroll-arrow scroll-left" @click="pageBackward">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+        </button>
+        <button class="scroll-arrow scroll-right" @click="pageForward">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+        </button>
+        <TransitionGroup name="card" tag="div"
           class="feed-scroll"
-          @scroll="handleScroll"
-          @wheel.passive="onWheel"
+          @wheel="onWheel"
         >
-        <ImageCard
-          v-for="item in feed.items"
-          :key="item.key"
-          :thumb-b64="item.thumb_b64"
-          :title="item.title"
-          :artist="item.artist"
-          :is-bookmarked="item.is_bookmarked"
-          :selected="feed.isSelected(item.key)"
-          :page="item.page"
-          :page-count="item.page_count"
-          :expanded="feed.isExpanded(item.illust_id)"
-          @toggle="feed.toggleSelect(item.key)"
-          @preview="openLightbox(item.key)"
-          @expand="feed.toggleExpand(item.illust_id)"
-        />
-        </div>
+          <div v-for="item in feed.items" :key="item.key" class="card-wrap">
+            <ImageCard
+              :thumb-b64="item.thumb_b64"
+              :title="item.title"
+              :artist="item.artist"
+              :is-bookmarked="item.is_bookmarked"
+              :selected="feed.isSelected(item.key)"
+              :page="item.page"
+              :page-count="item.page_count"
+              :expanded="feed.isExpanded(item.illust_id)"
+              @toggle="feed.toggleSelect(item.key)"
+              @preview="openLightbox(item)"
+              @expand="feed.toggleExpand(item.illust_id)"
+            />
+          </div>
+        </TransitionGroup>
       </div>
 
       <div v-if="feed.loading && feed.items.length > 0" class="feed-loading">
@@ -278,15 +353,54 @@ function handleRemoveFromTray(key: string) {
   min-height: 0;
   max-height: 480px;
   overflow: hidden;
+  position: relative;
 }
 
 .feed-scroll {
   display: flex;
   gap: 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 0;
+  overflow: hidden;
+  padding: 4px 4px 4px 4px;
   height: 100%;
+  position: relative;
+}
+
+.card-wrap {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+  aspect-ratio: 2/3;
+}
+
+.scroll-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  transition: background 0.18s ease;
+}
+
+.scroll-arrow:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.scroll-left {
+  left: 8px;
+}
+
+.scroll-right {
+  right: 8px;
 }
 
 .feed-scroll::-webkit-scrollbar {
@@ -310,5 +424,36 @@ function handleRemoveFromTray(key: string) {
   opacity: 0.65;
   font-size: 13px;
   padding: 8px;
+}
+
+.card-wrap {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+  aspect-ratio: 2/3;
+}
+
+.card-enter-active,
+.card-leave-active {
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-enter-from {
+  opacity: 0;
+  transform: translateX(-24px) scale(0.92);
+}
+
+.card-leave-to {
+  opacity: 0;
+  transform: translateX(24px) scale(0.92);
+}
+
+.card-leave-active {
+  position: absolute;
+  z-index: 1;
+}
+
+.card-move {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 </style>
