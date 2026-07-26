@@ -56,8 +56,18 @@ watch(
   () => auth.user,
   (u) => {
     if (u) feed.load("following");
+    else feed.items = [];
   },
   { immediate: true }
+);
+
+watch(
+  () => feed.error,
+  (e) => {
+    if (e && (e.includes("已过期") || e.includes("请重新登录"))) {
+      auth.user = null;
+    }
+  }
 );
 
 function handleFeedChange(kind: string) {

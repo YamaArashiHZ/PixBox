@@ -197,9 +197,8 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     eprintln!("[OAuth] exchanging token for code: {}", &code[..code.len().min(8)]);
 
     let token = {
-        let client = state.client.lock().unwrap().take().ok_or("HTTP 客户端未初始化")?;
+        let client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
         let result = exchange_token(&client, &code, &verifier).await;
-        state.client.lock().unwrap().replace(client);
         result?
     };
 
@@ -354,9 +353,8 @@ async fn get_or_refresh_token(app: &AppHandle, state: &AppState) -> Result<Strin
     }
 
     let token_data = load_token_data(app).ok_or("未登录，请先登录")?;
-    let client = state.client.lock().unwrap().take().ok_or("HTTP 客户端未初始化")?;
+    let client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
     let result = refresh_access_token(&client, &token_data.refresh_token).await;
-    state.client.lock().unwrap().replace(client);
 
     match result {
         Ok(token_resp) => {
@@ -369,7 +367,13 @@ async fn get_or_refresh_token(app: &AppHandle, state: &AppState) -> Result<Strin
             *state.access_token.lock().unwrap() = Some(token.clone());
             Ok(token)
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            let dir = app.path().app_data_dir().map_err(|d| d.to_string()).unwrap_or_default();
+            let path = std::path::Path::new(&dir).join("tokens.json");
+            std::fs::remove_file(&path).ok();
+            *state.access_token.lock().unwrap() = None;
+            Err(format!("登录已过期，请重新登录: {e}"))
+        }
     }
 }
 
@@ -395,8 +399,8 @@ pub async fn fetch_feed(
 ) -> Result<FeedPage, String> {
     let token = get_or_refresh_token(&app, &state).await?;
     let proxy = crate::load_proxy_setting(&app);
+    let api_client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
 
-    let api_client = state.client.lock().unwrap().take().ok_or("HTTP 客户端未初始化")?;
     let img_client = http::create_client_with_referer(proxy.as_deref())?;
 
     let url = next_url.unwrap_or_else(|| match kind.as_str() {
@@ -411,10 +415,11 @@ pub async fn fetch_feed(
         .await
         .map_err(|e| format!("API request failed: {e}"))?;
 
-    let status = resp.status();
+        let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Response read: {e}"))?;
 
-    state.client.lock().unwrap().replace(api_client);
+
+
 
     if !status.is_success() {
         return Err(format!("API returned {}: {}", status, text));
@@ -561,7 +566,7 @@ pub struct SaveReport {
 }
 
 async fn bookmark_add(state: &AppState, token: &str, illust_id: u64) {
-    let client = state.client.lock().unwrap().take();
+    let client = state.client.lock().unwrap().clone();
     if let Some(client) = client {
         let _ = client
             .post("https://app-api.pixiv.net/v1/illust/bookmark/add")
@@ -569,7 +574,6 @@ async fn bookmark_add(state: &AppState, token: &str, illust_id: u64) {
             .form(&[("illust_id", illust_id.to_string())])
             .send()
             .await;
-        state.client.lock().unwrap().replace(client);
     }
 }
 
