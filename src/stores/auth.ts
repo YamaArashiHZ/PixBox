@@ -1,0 +1,40 @@
+import { ref } from 'vue'
+import { defineStore } from 'pinia'
+import { getLoginStatus, startOauth, logout, type PixivUser } from '../api'
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<PixivUser | null>(null)
+  const loading = ref(false)
+
+  async function checkLogin() {
+    try {
+      const u = await getLoginStatus()
+      user.value = u
+    } catch {
+      user.value = null
+    }
+  }
+
+  async function login() {
+    loading.value = true
+    try {
+      const u = await startOauth()
+      user.value = u
+    } catch (e) {
+      console.error('Login failed:', e)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function doLogout() {
+    try {
+      await logout()
+    } catch (e) {
+      console.error('Logout failed:', e)
+    }
+    user.value = null
+  }
+
+  return { user, loading, checkLogin, login, doLogout }
+})
