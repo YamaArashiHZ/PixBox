@@ -84,21 +84,12 @@ async function openLink(url: string) {
         </div>
       </n-card>
 
-      <n-card size="small" title="技术栈">
-        <n-space :size="8">
-          <n-tag size="small" :bordered="false">Tauri 2</n-tag>
-          <n-tag size="small" :bordered="false">Vue 3</n-tag>
-          <n-tag size="small" :bordered="false">Rust</n-tag>
-        </n-space>
-      </n-card>
-
       <n-card size="small" title="使用提示">
         <ul class="tips">
-          <li>登录后自动加载关注列表，分段控件可切换至推荐列表。</li>
-          <li>横向滚动浏览图片，滚轮映射为水平滚动；右端 80% 自动加载下一页。</li>
-          <li>勾选图片后点击下方托盘保存；保存成功后自动标记 Pixiv bookmark。</li>
+          <li>登录后自动加载关注列表，可切换至推荐列表。</li>
+          <li>勾选图片后点击下方托盘保存；保存成功后自动标记。</li>
           <li>原图按日期文件夹归档，压缩图默认输出 JPEG 格式。</li>
-          <li>GIF 动图当前版本暂不支持保存（v1 跳过）。</li>
+          <li>GIF 动图当前版本暂不支持保存。</li>
         </ul>
       </n-card>
     </n-space>

@@ -12,7 +12,7 @@ import {
   NText,
   useMessage,
 } from "naive-ui";
-import { FolderOpenOutline, WifiOutline, PersonOutline, LogOutOutline } from "@vicons/ionicons5";
+import { FolderOpenOutline, PersonOutline, LogOutOutline } from "@vicons/ionicons5";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppConfig } from "../composables/useAppConfig";
 import { useAuthStore } from "../stores/auth";
@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 const message = useMessage();
 const {
+  proxy_enabled,
   proxy,
   save_dir,
   compress_enabled,
@@ -61,20 +62,28 @@ async function testConnection() {
 
     <n-space vertical :size="16" style="width: 100%">
       <n-card title="网络" size="small">
-        <div class="setting-row">
-          <n-text depth="3" class="label">代理地址</n-text>
-          <div class="input-row">
-            <n-input v-model:value="proxy" placeholder="http://127.0.0.1:7897" />
-            <n-button secondary @click="testConnection" :loading="testing">
-              测试连接
-            </n-button>
-          </div>
-          <div v-if="testResult" class="test-result">
-            <n-tag :type="testResult.ok ? 'success' : 'error'" size="small">
-              {{ testResult.text }}
-            </n-tag>
-          </div>
+        <div class="setting-row toggle-row">
+          <n-text depth="3">启用代理</n-text>
+          <n-switch v-model:value="proxy_enabled" />
         </div>
+        <Transition name="collapse">
+          <div v-if="proxy_enabled" class="collapsible-section">
+            <div class="setting-row">
+              <n-text depth="3" class="label">代理地址</n-text>
+              <div class="input-row">
+                <n-input v-model:value="proxy" placeholder="http://127.0.0.1:7897" />
+                <n-button secondary @click="testConnection" :loading="testing">
+                  测试连接
+                </n-button>
+              </div>
+              <div v-if="testResult" class="test-result">
+                <n-tag :type="testResult.ok ? 'success' : 'error'" size="small">
+                  {{ testResult.text }}
+                </n-tag>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </n-card>
 
       <n-card title="保存" size="small">
@@ -99,25 +108,29 @@ async function testConnection() {
             <n-switch v-model:value="compress_separate" />
           </div>
 
-          <div v-if="compress_enabled" class="setting-row">
-            <n-text depth="3" class="label">压缩保存路径</n-text>
-            <div class="input-row">
-              <n-input :value="compress_dir" placeholder="选择压缩图保存目录..." readonly />
-              <n-button secondary @click="chooseDir('compress_dir')">
-                <n-icon :component="FolderOpenOutline" :size="16" />
-              </n-button>
-            </div>
-          </div>
+          <Transition name="collapse">
+            <div v-if="compress_enabled" class="collapsible-section">
+              <div class="setting-row">
+                <n-text depth="3" class="label">压缩保存路径</n-text>
+                <div class="input-row">
+                  <n-input :value="compress_dir" placeholder="选择压缩图保存目录..." readonly />
+                  <n-button secondary @click="chooseDir('compress_dir')">
+                    <n-icon :component="FolderOpenOutline" :size="16" />
+                  </n-button>
+                </div>
+              </div>
 
-          <div v-if="compress_enabled" class="setting-row">
-            <n-text depth="3" class="label">压缩最大大小 (MB)</n-text>
-            <n-input-number
-              v-model:value="compress_max_mb"
-              :min="1"
-              :max="50"
-              style="width: 120px"
-            />
-          </div>
+              <div class="setting-row">
+                <n-text depth="3" class="label">压缩最大大小 (MB)</n-text>
+                <n-input-number
+                  v-model:value="compress_max_mb"
+                  :min="1"
+                  :max="50"
+                  style="width: 120px"
+                />
+              </div>
+            </div>
+          </Transition>
         </n-space>
       </n-card>
 
@@ -143,7 +156,7 @@ async function testConnection() {
 
 <style scoped>
 .settings {
-  max-width: 640px;
+  width: 100%;
 }
 
 .setting-row {
@@ -175,5 +188,33 @@ async function testConnection() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.collapsible-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.collapse-enter-active,
+.collapse-leave-active {
+  transition:
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.collapse-enter-from,
+.collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+}
+
+.collapse-enter-to,
+.collapse-leave-from {
+  max-height: 300px;
+  opacity: 1;
 }
 </style>

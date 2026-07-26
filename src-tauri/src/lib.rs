@@ -17,7 +17,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let proxy = load_proxy_setting(&handle);
-            let client = http::create_client(&proxy)
+            let client = http::create_client(proxy.as_deref())
                 .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
             app.manage(AppState {
@@ -42,7 +42,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-pub fn load_proxy_setting(app: &tauri::AppHandle) -> String {
+pub fn load_proxy_setting(app: &tauri::AppHandle) -> Option<String> {
     let path = app
         .path()
         .app_data_dir()
@@ -52,15 +52,21 @@ pub fn load_proxy_setting(app: &tauri::AppHandle) -> String {
     if let Some(p) = path {
         if let Ok(data) = std::fs::read_to_string(&p) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                let enabled = json
+                    .get("proxy_enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if !enabled {
+                    return None;
+                }
                 return json
                     .get("proxy")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("http://127.0.0.1:7897")
-                    .to_string();
+                    .map(|s| s.to_string());
             }
         }
     }
-    "http://127.0.0.1:7897".to_string()
+    Some("http://127.0.0.1:7897".to_string())
 }
 
 #[tauri::command]
@@ -72,6 +78,7 @@ fn get_settings(app: AppHandle) -> String {
         .map(|d| d.join("settings.json"));
 
     let defaults = serde_json::json!({
+        "proxy_enabled": true,
         "proxy": "http://127.0.0.1:7897",
         "save_dir": "",
         "compress_enabled": true,

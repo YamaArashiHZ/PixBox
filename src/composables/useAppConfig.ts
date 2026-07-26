@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ThemeMode } from "../types";
 
 export interface AppConfig {
+  proxy_enabled: boolean;
   proxy: string;
   save_dir: string;
   compress_enabled: boolean;
@@ -13,6 +14,7 @@ export interface AppConfig {
 }
 
 const DEFAULT_CONFIG: AppConfig = {
+  proxy_enabled: true,
   proxy: "http://127.0.0.1:7897",
   save_dir: "",
   compress_enabled: true,
@@ -57,6 +59,7 @@ export function useAppConfig() {
   const simpleRefs = toRefs(state);
 
   return {
+    proxy_enabled: simpleRefs.proxy_enabled,
     proxy: simpleRefs.proxy,
     save_dir: simpleRefs.save_dir,
     compress_enabled: simpleRefs.compress_enabled,

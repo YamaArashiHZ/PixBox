@@ -384,7 +384,7 @@ pub async fn fetch_feed(
     let proxy = crate::load_proxy_setting(&app);
 
     let api_client = state.client.lock().unwrap().take().ok_or("HTTP 客户端未初始化")?;
-    let img_client = http::create_client_with_referer(&proxy)?;
+    let img_client = http::create_client_with_referer(proxy.as_deref())?;
 
     let url = next_url.unwrap_or_else(|| match kind.as_str() {
         "recommended" => "https://app-api.pixiv.net/v1/illust/recommended".to_string(),
@@ -458,7 +458,7 @@ pub async fn get_image_data(
     url: String,
 ) -> Result<String, String> {
     let proxy = crate::load_proxy_setting(&app);
-    let client = http::create_client_with_referer(&proxy)?;
+    let client = http::create_client_with_referer(proxy.as_deref())?;
 
     let resp = client
         .get(&url)
@@ -476,6 +476,8 @@ pub async fn get_image_data(
 
 #[derive(Debug, Deserialize)]
 struct Settings {
+    #[serde(default)]
+    proxy_enabled: bool,
     #[serde(default = "default_proxy")]
     proxy: String,
     #[serde(default)]
@@ -512,6 +514,7 @@ fn load_settings(app: &AppHandle) -> Settings {
         }
     }
     Settings {
+        proxy_enabled: true,
         proxy: default_proxy(),
         save_dir: String::new(),
         compress_enabled: true,
@@ -571,7 +574,9 @@ pub async fn save_images(
     }
 
     let token = get_or_refresh_token(&app, &state).await?;
-    let img_client = http::create_client_with_referer(&settings.proxy)?;
+    let img_client = http::create_client_with_referer(
+        if settings.proxy_enabled { Some(&settings.proxy) } else { None }
+    )?;
 
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let total = items.len();
@@ -688,7 +693,7 @@ pub async fn save_images(
 
 #[tauri::command]
 pub async fn test_proxy(proxy: String) -> Result<u64, String> {
-    let client = http::create_client(&proxy)?;
+    let client = http::create_client(Some(&proxy))?;
     let start = std::time::Instant::now();
 
     let _resp = client

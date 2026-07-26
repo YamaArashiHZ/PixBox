@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getLoginStatus, startOauth, logout, type PixivUser } from '../api'
+import { startOauth, getLoginStatus, logout, type PixivUser } from '../api'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<PixivUser | null>(null)
