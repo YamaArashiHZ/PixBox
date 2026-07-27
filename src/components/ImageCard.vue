@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { NCheckbox, NIcon, NTooltip } from "naive-ui";
 
 const props = defineProps<{
+  itemKey: string;
   thumbB64: string;
   title: string;
   artist: string;
@@ -25,7 +26,7 @@ const thumbSrc = computed(() =>
 </script>
 
 <template>
-  <div class="image-card" :class="{ selected }">
+  <div class="image-card" :class="{ selected }" :data-key="itemKey">
     <button class="image-wrap" @click="emit('preview')">
       <img v-if="thumbSrc" :src="thumbSrc" :alt="title" loading="lazy" />
       <div v-else class="img-placeholder"></div>

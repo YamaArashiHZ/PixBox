@@ -245,6 +245,10 @@ struct PixivIllust {
     page_count: u32,
     is_bookmarked: bool,
     x_restrict: Option<u32>,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
     image_urls: IllustImageUrls,
     meta_single_page: Option<MetaSinglePage>,
     meta_pages: Option<Vec<MetaPage>>,
@@ -294,6 +298,10 @@ pub struct FeedItem {
     pub title: String,
     pub artist: String,
     pub is_bookmarked: bool,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -477,6 +485,8 @@ pub async fn fetch_feed(
                 title: title.clone(),
                 artist: artist.clone(),
                 is_bookmarked,
+                width: illust.width,
+                height: illust.height,
             });
         }
     }
@@ -549,6 +559,16 @@ pub fn get_cache_size(app: AppHandle) -> Result<u64, String> {
             total += meta.len();
         }
     }
+    // 大图缓存目录
+    if let Ok(rd) = std::fs::read_dir(dir.join("image_cache")) {
+        for entry in rd.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    total += meta.len();
+                }
+            }
+        }
+    }
     Ok(total)
 }
 
@@ -559,6 +579,7 @@ pub fn clear_cache(app: AppHandle) -> Result<(), String> {
         let path = dir.join(format!("feed_cache_{}.json", kind));
         std::fs::remove_file(&path).ok();
     }
+    std::fs::remove_dir_all(dir.join("image_cache")).ok();
     Ok(())
 }
 
@@ -583,12 +604,90 @@ pub fn load_cached_feed(app: AppHandle, kind: String) -> Result<FeedPage, String
     serde_json::from_str(&data).map_err(|e| e.to_string())
 }
 
+// ---- 大图磁盘缓存（app_data_dir/image_cache/，每图一文件，LRU 淘汰）----
+
+fn image_cache_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("image_cache"))
+}
+
+// 文件名取 URL 最后一段（pixiv 的 {illust_id}_p{n}.jpg 全局唯一），非法则退回 URL 哈希
+fn cache_file_name(url: &str) -> String {
+    let seg = url.rsplit('/').next().unwrap_or("");
+    let seg = seg.split(['?', '#']).next().unwrap_or("");
+    let sanitized: String = seg
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        .collect();
+    if sanitized.contains('.') && sanitized.len() <= 120 {
+        sanitized
+    } else {
+        let mut hasher = Sha256::new();
+        hasher.update(url.as_bytes());
+        let digest = URL_SAFE_NO_PAD.encode(hasher.finalize());
+        format!("img_{}", &digest[..16])
+    }
+}
+
+// 超过上限时按最后访问时间（mtime）从旧到新删除
+async fn enforce_image_cache_limit(app: &AppHandle, dir: &std::path::Path) {
+    let Some(limit_mb) = load_settings(app).image_cache_limit_mb else {
+        return; // 无上限
+    };
+    let limit_bytes = (limit_mb.max(0.0) * 1_048_576.0) as u64;
+
+    let mut entries: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = Vec::new();
+    if let Ok(mut rd) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            if let Ok(meta) = entry.metadata().await {
+                if meta.is_file() {
+                    let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    entries.push((entry.path(), meta.len(), mtime));
+                }
+            }
+        }
+    }
+
+    let mut total: u64 = entries.iter().map(|e| e.1).sum();
+    if total <= limit_bytes {
+        return;
+    }
+
+    entries.sort_by_key(|e| e.2);
+    for (path, size, _) in entries {
+        if total <= limit_bytes {
+            break;
+        }
+        if tokio::fs::remove_file(&path).await.is_ok() {
+            total -= size;
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn enforce_cache_limit(app: AppHandle) -> Result<(), String> {
+    if let Some(dir) = image_cache_dir(&app) {
+        enforce_image_cache_limit(&app, &dir).await;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_image_data(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     url: String,
 ) -> Result<String, String> {
+    let cache_dir = image_cache_dir(&app);
+    let cache_path = cache_dir.as_ref().map(|d| d.join(cache_file_name(&url)));
+
+    // 命中磁盘缓存：直接读盘返回；重写一遍更新 mtime，作为 LRU 的"最后访问时间"
+    if let Some(path) = &cache_path {
+        if let Ok(data) = tokio::fs::read(path).await {
+            tokio::fs::write(path, &data).await.ok();
+            return Ok(BASE64.encode(&data));
+        }
+    }
+
     let proxy = crate::load_proxy_setting(&app);
     let client = http::create_client_with_referer(proxy.as_deref())?;
 
@@ -602,6 +701,15 @@ pub async fn get_image_data(
         .bytes()
         .await
         .map_err(|e| format!("Read failed: {e}"))?;
+
+    // 写入缓存并执行限额清理
+    if let (Some(dir), Some(path)) = (cache_dir, cache_path) {
+        if tokio::fs::create_dir_all(&dir).await.is_ok()
+            && tokio::fs::write(&path, &data).await.is_ok()
+        {
+            enforce_image_cache_limit(&app, &dir).await;
+        }
+    }
 
     Ok(BASE64.encode(&data))
 }
@@ -622,6 +730,8 @@ struct Settings {
     compress_dir: String,
     #[serde(default = "default_max_mb")]
     compress_max_mb: f64,
+    #[serde(default = "default_image_cache_limit_mb")]
+    image_cache_limit_mb: Option<f64>,
 }
 
 fn default_proxy() -> String {
@@ -629,6 +739,9 @@ fn default_proxy() -> String {
 }
 fn default_max_mb() -> f64 {
     6.0
+}
+fn default_image_cache_limit_mb() -> Option<f64> {
+    Some(200.0)
 }
 
 fn load_settings(app: &AppHandle) -> Settings {
@@ -653,6 +766,7 @@ fn load_settings(app: &AppHandle) -> Settings {
         compress_separate: true,
         compress_dir: String::new(),
         compress_max_mb: default_max_mb(),
+        image_cache_limit_mb: default_image_cache_limit_mb(),
     }
 }
 

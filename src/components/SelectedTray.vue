@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NIcon, NProgress } from "naive-ui";
-import { SaveOutline, CloseOutline } from "@vicons/ionicons5";
+import { CloseOutline } from "@vicons/ionicons5";
 import type { FeedItem } from "../api";
 
 const props = defineProps<{
@@ -29,7 +29,12 @@ const thumbSrc = (item: FeedItem) =>
           :loading="saving"
           @click="emit('save')"
         >
-          <n-icon :component="SaveOutline" :size="16" style="margin-right: 6px" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+            <circle cx="15" cy="5.5" r="1.5" />
+          </svg>
           {{ saving ? "保存中..." : `保存图片 (${items.length})` }}
         </n-button>
       </div>

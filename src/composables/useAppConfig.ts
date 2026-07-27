@@ -10,6 +10,7 @@ export interface AppConfig {
   compress_separate: boolean;
   compress_dir: string;
   compress_max_mb: number;
+  image_cache_limit_mb: number | null;
   theme: ThemeMode;
 }
 
@@ -21,6 +22,7 @@ const DEFAULT_CONFIG: AppConfig = {
   compress_separate: true,
   compress_dir: "",
   compress_max_mb: 6,
+  image_cache_limit_mb: 200,
   theme: "dark",
 };
 
@@ -66,6 +68,7 @@ export function useAppConfig() {
     compress_separate: simpleRefs.compress_separate,
     compress_dir: simpleRefs.compress_dir,
     compress_max_mb: simpleRefs.compress_max_mb,
+    image_cache_limit_mb: simpleRefs.image_cache_limit_mb,
     theme: simpleRefs.theme,
     toggleTheme,
     loadAppConfig,

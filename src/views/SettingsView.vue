@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import {
   NCard,
   NSpace,
   NButton,
   NInput,
   NInputNumber,
+  NSelect,
   NSwitch,
   NTag,
   NIcon,
@@ -16,7 +17,7 @@ import { FolderOpenOutline, PersonOutline, LogOutOutline } from "@vicons/ionicon
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppConfig } from "../composables/useAppConfig";
 import { useAuthStore } from "../stores/auth";
-import { getCacheSize, clearCache } from "../api";
+import { getCacheSize, clearCache, enforceCacheLimit } from "../api";
 import { invoke } from "@tauri-apps/api/core";
 
 const message = useMessage();
@@ -28,6 +29,7 @@ const {
   compress_separate,
   compress_dir,
   compress_max_mb,
+  image_cache_limit_mb,
 } = useAppConfig();
 const auth = useAuthStore();
 
@@ -35,6 +37,18 @@ const testing = ref(false);
 const testResult = ref<{ ok: boolean; text: string } | null>(null);
 const cacheSize = ref<number | null>(null);
 const clearingCache = ref(false);
+
+const limitModeOptions = [
+  { label: "无上限", value: "unlimited" },
+  { label: "自定义", value: "custom" },
+];
+
+function onLimitModeChange(v: string) {
+  image_cache_limit_mb.value = v === "unlimited" ? null : 200;
+}
+
+// 上限变化后立即执行一次 LRU 清理
+watch(image_cache_limit_mb, () => { void enforceCacheLimit(); });
 
 async function chooseDir(target: "save_dir" | "compress_dir") {
   const dir = await open({ directory: true, title: "选择目录" });
@@ -156,10 +170,35 @@ onMounted(() => { loadCacheSize(); })
       </n-card>
 
       <n-card title="缓存" size="small">
-        <div class="account-row">
-          <n-text>{{ cacheSize !== null ? `缓存大小: ${fmtBytes(cacheSize)}` : '加载中...' }}</n-text>
-          <n-button size="small" :loading="clearingCache" @click="doClearCache">删除缓存</n-button>
-        </div>
+        <n-space vertical :size="14" style="width: 100%">
+          <div class="account-row">
+            <n-text>{{ cacheSize !== null ? `缓存大小: ${fmtBytes(cacheSize)}` : '加载中...' }}</n-text>
+            <n-button size="small" :loading="clearingCache" @click="doClearCache">删除缓存</n-button>
+          </div>
+          <div class="setting-row">
+            <n-text depth="3" class="label">大图缓存上限</n-text>
+            <div class="input-row">
+              <n-select
+                :value="image_cache_limit_mb === null ? 'unlimited' : 'custom'"
+                :options="limitModeOptions"
+                style="width: 110px"
+                @update:value="onLimitModeChange"
+              />
+              <n-input-number
+                v-if="image_cache_limit_mb !== null"
+                v-model:value="image_cache_limit_mb"
+                :min="1"
+                :max="51200"
+                style="width: 140px"
+              >
+                <template #suffix>MB</template>
+              </n-input-number>
+            </div>
+          </div>
+          <n-text depth="3" style="font-size: 12px">
+            大图缓存用于加速重复预览；超出上限后自动清理最久未查看的图片
+          </n-text>
+        </n-space>
       </n-card>
 
       <n-card title="账号" size="small">

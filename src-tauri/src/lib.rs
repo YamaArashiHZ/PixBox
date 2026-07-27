@@ -36,6 +36,7 @@ pub fn run() {
             pixiv_api::get_cache_size,
             pixiv_api::clear_cache,
             pixiv_api::get_image_data,
+            pixiv_api::enforce_cache_limit,
             pixiv_api::save_images,
             pixiv_api::test_proxy,
             get_settings,
@@ -88,6 +89,7 @@ fn get_settings(app: AppHandle) -> String {
         "compress_separate": true,
         "compress_dir": "",
         "compress_max_mb": 6,
+        "image_cache_limit_mb": 200,
         "user": null
     });
 

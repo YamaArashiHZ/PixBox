@@ -17,6 +17,8 @@ export interface FeedItem {
   title: string
   artist: string
   is_bookmarked: boolean
+  width: number
+  height: number
 }
 
 export interface FeedPage {
@@ -92,4 +94,8 @@ export async function getCacheSize(): Promise<number> {
 
 export async function clearCache(): Promise<void> {
   return invoke('clear_cache')
+}
+
+export async function enforceCacheLimit(): Promise<void> {
+  return invoke('enforce_cache_limit')
 }

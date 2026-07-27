@@ -23,9 +23,19 @@ const auth = useAuthStore();
 const feed = useFeedStore();
 
 const lightboxVisible = ref(false);
+const lightboxReady = ref(false);
 const lightboxKey = ref("");
+const cardRect = ref<{ left: number; top: number; width: number; height: number } | null>(null);
+const cardAspect = ref(1);
+const cloneVisible = ref(false);
+const cloneSrc = ref("");
+const cloneEl = ref<HTMLElement | null>(null);
+const cloneCurrent = ref({ left: "0px", top: "0px", width: "0px", height: "0px", borderRadius: "12px" });
 const saving = ref(false);
 const saveProgress = ref<number | null>(null);
+
+const FLIGHT_MS = 300;
+let flightToken = 0;
 
 const feedOptions = [
   { label: "关注", value: "following" },
@@ -43,6 +53,12 @@ const lightboxAllItems = computed(() =>
 const lightboxItem = computed(() =>
   feed.items.find((i) => i.key === lightboxKey.value)
 );
+
+// 原图真实宽高比（缩略图是方形裁切，不能用作显示比例）
+const lightboxAspect = computed(() => {
+  const item = lightboxItem.value;
+  return item && item.width > 0 && item.height > 0 ? item.width / item.height : 0;
+});
 
 const showLeftBtn = ref(false);
 const showRightBtn = ref(true);
@@ -200,14 +216,123 @@ function pageEnd() {
   scrollTo(el.scrollWidth - el.clientWidth);
 }
 
+// 根据卡片 key 抓取缩略图位置；宽高比优先用原图真实尺寸（缩略图是方形裁切，不能代表原图比例）
+function captureCard(key: string, item?: FeedItem): boolean {
+  const imgEl = document.querySelector(`[data-key="${key}"] .image-wrap img`) as HTMLImageElement | null;
+  const rect = imgEl?.getBoundingClientRect();
+  if (!rect || rect.width === 0) return false;
+  cardRect.value = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  if (item && item.width > 0 && item.height > 0) {
+    cardAspect.value = item.width / item.height;
+  } else {
+    cardAspect.value = imgEl!.naturalWidth > 0
+      ? imgEl!.naturalWidth / imgEl!.naturalHeight
+      : rect.width / rect.height;
+  }
+  return true;
+}
+
+// 与 Lightbox 实际显示一致的目标矩形：90vw/90vh 内 contain 居中
+function centerBox() {
+  const aspect = cardAspect.value || 1;
+  const maxW = window.innerWidth * 0.9;
+  const maxH = window.innerHeight * 0.9;
+  let width = maxW;
+  let height = width / aspect;
+  if (height > maxH) {
+    height = maxH;
+    width = height * aspect;
+  }
+  return {
+    left: (window.innerWidth - width) / 2,
+    top: (window.innerHeight - height) / 2,
+    width,
+    height,
+    radius: 4,
+  };
+}
+
+function cardBox() {
+  return { ...cardRect.value!, radius: 12 };
+}
+
+function setClone(box: { left: number; top: number; width: number; height: number; radius: number }) {
+  cloneCurrent.value = {
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    borderRadius: `${box.radius}px`,
+  };
+}
+
+// 飞行结束后的交接：优先用 transitionend，超时兜底；token 防止旧回调干扰新动画
+function afterFlight(token: number, cb: () => void) {
+  let done = false;
+  const el = cloneEl.value;
+  const finish = (e?: TransitionEvent) => {
+    if (done || token !== flightToken) return;
+    if (e && e.propertyName !== "width") return;
+    done = true;
+    window.clearTimeout(timer);
+    el?.removeEventListener("transitionend", finish);
+    cb();
+  };
+  el?.addEventListener("transitionend", finish);
+  const timer = window.setTimeout(finish, FLIGHT_MS + 60);
+}
+
 function openLightbox(item: FeedItem) {
+  const token = ++flightToken;
   lightboxKey.value = item.key;
   lightboxVisible.value = true;
+  lightboxReady.value = false;
+  cardRect.value = null;
+  if (!captureCard(item.key, item) || !item.thumb_b64) {
+    // 找不到卡片时退化为简单淡入
+    lightboxReady.value = true;
+    return;
+  }
+  cloneSrc.value = `data:image/jpeg;base64,${item.thumb_b64}`;
+  cloneVisible.value = true;
+  setClone(cardBox());
+  nextTick(() => {
+    if (token !== flightToken) return;
+    // 强制 reflow，确保起始样式先生效再触发动画
+    if (cloneEl.value) void cloneEl.value.offsetWidth;
+    setClone(centerBox());
+    afterFlight(token, () => {
+      lightboxReady.value = true;
+      // 等图片区淡入完成后再撤掉克隆体，避免交接瞬间闪烁
+      window.setTimeout(() => {
+        if (token === flightToken) cloneVisible.value = false;
+      }, 150);
+    });
+  });
 }
 
 function closeLightbox() {
+  const token = ++flightToken;
+  if (!cardRect.value) {
+    lightboxVisible.value = false;
+    lightboxKey.value = "";
+    return;
+  }
+  // 图片区快速隐去，背景在飞行过程中淡出，克隆体飞回卡片位置
+  lightboxReady.value = false;
   lightboxVisible.value = false;
-  lightboxKey.value = "";
+  cloneVisible.value = true;
+  setClone(centerBox());
+  nextTick(() => {
+    if (token !== flightToken) return;
+    if (cloneEl.value) void cloneEl.value.offsetWidth;
+    setClone(cardBox());
+    afterFlight(token, () => {
+      cloneVisible.value = false;
+      lightboxKey.value = "";
+      cardRect.value = null;
+    });
+  });
 }
 
 function lightboxNavigate(dir: -1 | 1) {
@@ -215,6 +340,10 @@ function lightboxNavigate(dir: -1 | 1) {
   const next = idx + dir;
   if (next >= 0 && next < lightboxAllItems.value.length) {
     lightboxKey.value = lightboxAllItems.value[next].key;
+    // 同步更新关闭动画的返回目标和缩略图
+    const item = feed.items.find((i) => i.key === lightboxKey.value);
+    captureCard(lightboxKey.value, item);
+    if (item) cloneSrc.value = `data:image/jpeg;base64,${item.thumb_b64}`;
   }
 }
 
@@ -329,6 +458,7 @@ function handleRemoveFromTray(key: string) {
           <TransitionGroup v-else name="card" tag="div" class="feed-cards">
             <div v-for="item in feed.items" :key="item.key" class="card-wrap">
               <ImageCard
+                :item-key="item.key"
                 :thumb-b64="item.thumb_b64"
                 :title="item.title"
                 :artist="item.artist"
@@ -358,15 +488,31 @@ function handleRemoveFromTray(key: string) {
       />
     </template>
 
-    <Lightbox
-      v-if="lightboxVisible && lightboxItem"
-      :url="lightboxItem.large_url"
-      :alt="lightboxItem.title"
-      :all-items="lightboxAllItems"
-      :current-key="lightboxKey"
-      @close="closeLightbox"
-      @navigate="lightboxNavigate"
-    />
+    <Transition name="lightbox">
+      <Lightbox
+        v-if="lightboxVisible && lightboxItem"
+        :url="lightboxItem.large_url"
+        :alt="lightboxItem.title"
+        :thumb="lightboxItem.thumb_b64"
+        :ready="lightboxReady"
+        :aspect="lightboxAspect"
+        :all-items="lightboxAllItems"
+        :current-key="lightboxKey"
+        @close="closeLightbox"
+        @navigate="lightboxNavigate"
+      />
+    </Transition>
+
+    <Teleport to="body">
+      <div
+        v-if="cloneVisible && cardRect"
+        ref="cloneEl"
+        class="clone-wrapper"
+        :style="cloneCurrent"
+      >
+        <img :src="cloneSrc" class="clone-img" />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -609,5 +755,25 @@ function handleRemoveFromTray(key: string) {
 
 .card-move {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.clone-wrapper {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transition:
+    left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.clone-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 </style>
