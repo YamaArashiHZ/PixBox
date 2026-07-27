@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { NCheckbox, NIcon, NTooltip } from "naive-ui";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 const props = defineProps<{
   itemKey: string;
+  illustId: number;
   thumbB64: string;
   title: string;
   artist: string;
@@ -23,6 +25,11 @@ const emit = defineEmits<{
 const thumbSrc = computed(() =>
   props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "",
 );
+
+// 用系统默认浏览器打开 Pixiv 帖子页
+function openPost() {
+  openUrl(`https://www.pixiv.net/artworks/${props.illustId}`).catch(() => {});
+}
 </script>
 
 <template>
@@ -79,8 +86,22 @@ const thumbSrc = computed(() =>
     </NTooltip>
 
     <div class="card-info">
-      <span class="artist">{{ artist }}</span>
-      <span class="card-title" :title="title">{{ title }}</span>
+      <div class="card-text">
+        <span class="artist">{{ artist }}</span>
+        <span class="card-title" :title="title">{{ title }}</span>
+      </div>
+      <NTooltip :delay="300">
+        <template #trigger>
+          <button class="link-btn" @click.stop="openPost">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </button>
+        </template>
+        在浏览器中打开
+      </NTooltip>
     </div>
   </div>
 </template>
@@ -244,9 +265,39 @@ const thumbSrc = computed(() =>
   height: 52px;
   padding: 8px 10px;
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: 2px;
   justify-content: center;
+}
+
+.link-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: currentColor;
+  opacity: 0.45;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.18s ease, background 0.18s ease;
+  padding: 0;
+}
+
+.link-btn:hover {
+  opacity: 0.9;
+  background: rgba(128, 128, 128, 0.15);
 }
 
 .artist {

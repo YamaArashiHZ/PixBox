@@ -45,6 +45,12 @@ function onBackdropClick(e: MouseEvent) {
   }
 }
 
+// 预览中任意位置右键退出预览
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault();
+  emit("close");
+}
+
 onMounted(() => {
   document.addEventListener("keydown", onKeydown);
 });
@@ -55,7 +61,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="lightbox-backdrop" @click="onBackdropClick">
+  <div class="lightbox-backdrop" @click="onBackdropClick" @contextmenu="onContextMenu">
     <n-button circle class="lightbox-close" @click="emit('close')">
       <n-icon :component="CloseOutline" :size="20" />
     </n-button>

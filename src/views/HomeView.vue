@@ -467,6 +467,7 @@ function handleRemoveFromTray(key: string) {
             <div v-for="item in feed.items" :key="item.key" class="card-wrap">
               <ImageCard
                 :item-key="item.key"
+                :illust-id="item.illust_id"
                 :thumb-b64="item.thumb_b64"
                 :title="item.title"
                 :artist="item.artist"
