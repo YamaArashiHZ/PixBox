@@ -16,6 +16,7 @@ import { saveImages } from "../api";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import ImageCard from "../components/ImageCard.vue";
 import Lightbox from "../components/Lightbox.vue";
+import { preloadImage } from "../utils/imageCache";
 import SelectedTray from "../components/SelectedTray.vue";
 
 const message = useMessage();
@@ -282,6 +283,12 @@ function afterFlight(token: number, cb: () => void) {
   const timer = window.setTimeout(finish, FLIGHT_MS + 60);
 }
 
+function preloadAdjacent(key: string) {
+  const idx = lightboxAllItems.value.findIndex((i) => i.key === key);
+  if (idx > 0) preloadImage(lightboxAllItems.value[idx - 1].large_url);
+  if (idx < lightboxAllItems.value.length - 1) preloadImage(lightboxAllItems.value[idx + 1].large_url);
+}
+
 function openLightbox(item: FeedItem) {
   const token = ++flightToken;
   lightboxKey.value = item.key;
@@ -289,13 +296,13 @@ function openLightbox(item: FeedItem) {
   lightboxReady.value = false;
   cardRect.value = null;
   if (!captureCard(item.key, item) || !item.thumb_b64) {
-    // 找不到卡片时退化为简单淡入
     lightboxReady.value = true;
     return;
   }
   cloneSrc.value = `data:image/jpeg;base64,${item.thumb_b64}`;
   cloneVisible.value = true;
   setClone(cardBox());
+  preloadAdjacent(item.key);
   nextTick(() => {
     if (token !== flightToken) return;
     // 强制 reflow，确保起始样式先生效再触发动画
@@ -344,6 +351,7 @@ function lightboxNavigate(dir: -1 | 1) {
     const item = feed.items.find((i) => i.key === lightboxKey.value);
     captureCard(lightboxKey.value, item);
     if (item) cloneSrc.value = `data:image/jpeg;base64,${item.thumb_b64}`;
+    preloadAdjacent(lightboxKey.value);
   }
 }
 
@@ -493,7 +501,6 @@ function handleRemoveFromTray(key: string) {
         v-if="lightboxVisible && lightboxItem"
         :url="lightboxItem.large_url"
         :alt="lightboxItem.title"
-        :thumb="lightboxItem.thumb_b64"
         :ready="lightboxReady"
         :aspect="lightboxAspect"
         :all-items="lightboxAllItems"

@@ -1,39 +1,12 @@
-<script lang="ts">
-// 会话级内存缓存（模块级，组件卸载后保留）：
-// 磁盘缓存命中仍需 读盘+IPC+解码（百毫秒级），内存缓存让本会话内重复打开同步可用
-const MEM_CACHE_LIMIT = 30;
-const memCache = new Map<string, string>();
-
-function memGet(url: string): string | undefined {
-  const v = memCache.get(url);
-  if (v !== undefined) {
-    // LRU：提到最新位置
-    memCache.delete(url);
-    memCache.set(url, v);
-  }
-  return v;
-}
-
-function memSet(url: string, src: string) {
-  memCache.delete(url);
-  memCache.set(url, src);
-  while (memCache.size > MEM_CACHE_LIMIT) {
-    const oldest = memCache.keys().next().value!;
-    memCache.delete(oldest);
-  }
-}
-</script>
-
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from "vue";
-import { NButton, NIcon, NSpin } from "naive-ui";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { NButton, NIcon } from "naive-ui";
 import { ChevronBackOutline, ChevronForwardOutline, CloseOutline } from "@vicons/ionicons5";
-import { getImageData } from "../api";
+import LightboxImage from "./LightboxImage.vue";
 
 const props = defineProps<{
   url: string;
   alt: string;
-  thumb: string;
   ready: boolean;
   aspect: number;
   allItems: { key: string; large_url: string }[];
@@ -45,81 +18,25 @@ const emit = defineEmits<{
   navigate: [direction: -1 | 1];
 }>();
 
-const imageData = ref("");
-const largeLoaded = ref(false);
-const loading = ref(false);
-const failed = ref(false);
-const zoomed = ref(false);
+// ── slide animation state ──
+const lastNavDir = ref<"next" | "prev" | "">("");
 
-const thumbSrc = computed(() =>
-  props.thumb ? `data:image/jpeg;base64,${props.thumb}` : ""
+const currentIdx = computed(() =>
+  props.allItems.findIndex((i) => i.key === props.currentKey)
 );
 
-// 大图加载完成前用缩略图垫底
-const displaySrc = computed(() => imageData.value || thumbSrc.value);
+const slideName = computed(() => (lastNavDir.value ? `slide-${lastNavDir.value}` : ""));
 
-// 按原图真实宽高比计算 90vw/90vh 内的 contain 显示盒子
-// （缩略图是方形裁切，盒子比例必须来自原图，否则大图叠入后比例不符）
-const fitStyle = computed(() => {
-  const a = props.aspect > 0 ? props.aspect : 1;
-  const maxW = window.innerWidth * 0.9;
-  const maxH = window.innerHeight * 0.9;
-  let w = maxW;
-  let h = w / a;
-  if (h > maxH) {
-    h = maxH;
-    w = h * a;
-  }
-  return { width: `${w}px`, height: `${h}px` };
-});
-
-async function loadImage() {
-  const url = props.url;
-  imageData.value = "";
-  largeLoaded.value = false;
-  failed.value = false;
-  if (!url) return;
-
-  // 内存缓存命中：同步可用，无需读盘/网络
-  const cached = memGet(url);
-  if (cached) {
-    imageData.value = cached;
-    return;
-  }
-
-  loading.value = true;
-  try {
-    const b64 = await getImageData(url);
-    if (props.url !== url) return;
-    const src = `data:image/jpeg;base64,${b64}`;
-    // 解码完成后再上屏，避免替换瞬间出现空白帧
-    await new Promise<void>((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve();
-      img.onerror = () => resolve();
-      img.src = src;
-    });
-    if (props.url === url) {
-      imageData.value = src;
-      memSet(url, src);
-    }
-  } catch {
-    if (props.url === url) failed.value = true;
-  } finally {
-    if (props.url === url) loading.value = false;
-  }
+// ── navigation ──
+function navigate(dir: -1 | 1) {
+  lastNavDir.value = dir > 0 ? "next" : "prev";
+  emit("navigate", dir);
 }
-
-watch(() => props.url, loadImage, { immediate: true });
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") emit("close");
-  if (e.key === "ArrowLeft") emit("navigate", -1);
-  if (e.key === "ArrowRight") emit("navigate", 1);
-}
-
-function toggleZoom() {
-  zoomed.value = !zoomed.value;
+  if (e.key === "ArrowLeft") navigate(-1);
+  if (e.key === "ArrowRight") navigate(1);
 }
 
 function onBackdropClick(e: MouseEvent) {
@@ -135,8 +52,6 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("keydown", onKeydown);
 });
-
-const currentIdx = computed(() => props.allItems.findIndex((i) => i.key === props.currentKey));
 </script>
 
 <template>
@@ -149,7 +64,7 @@ const currentIdx = computed(() => props.allItems.findIndex((i) => i.key === prop
       v-if="currentIdx > 0"
       circle
       class="lightbox-nav lightbox-prev"
-      @click.stop="emit('navigate', -1)"
+      @click.stop="navigate(-1)"
     >
       <n-icon :component="ChevronBackOutline" :size="24" />
     </n-button>
@@ -158,39 +73,15 @@ const currentIdx = computed(() => props.allItems.findIndex((i) => i.key === prop
       v-if="currentIdx < allItems.length - 1"
       circle
       class="lightbox-nav lightbox-next"
-      @click.stop="emit('navigate', 1)"
+      @click.stop="navigate(1)"
     >
       <n-icon :component="ChevronForwardOutline" :size="24" />
     </n-button>
 
-    <div class="lightbox-content" :class="{ zoomed, visible: ready }">
-      <div
-        v-if="!zoomed && displaySrc"
-        class="img-stack cursor-zoom-in"
-        :style="fitStyle"
-        @click="toggleZoom"
-      >
-        <img v-if="thumbSrc" class="lb-base" :src="thumbSrc" :alt="alt" />
-        <img
-          v-if="imageData"
-          class="lb-overlay"
-          :class="{ loaded: largeLoaded }"
-          :src="imageData"
-          :alt="alt"
-          @load="largeLoaded = true"
-        />
-      </div>
-      <img
-        v-else-if="zoomed && displaySrc"
-        class="lb-zoomed cursor-zoom-out"
-        :src="displaySrc"
-        :alt="alt"
-        @click="toggleZoom"
-      />
-      <div v-else-if="loading" class="lightbox-loading">
-        <n-spin size="large" />
-      </div>
-      <div v-else class="lightbox-error">图片加载失败</div>
+    <div class="lightbox-content" :class="{ visible: ready }">
+      <Transition :name="slideName">
+        <LightboxImage :key="currentKey" :url="url" :alt="alt" :aspect="aspect" />
+      </Transition>
     </div>
 
     <div class="lightbox-counter">
@@ -243,6 +134,7 @@ const currentIdx = computed(() => props.allItems.findIndex((i) => i.key === prop
 }
 
 .lightbox-content {
+  position: relative;
   max-width: 90vw;
   max-height: 90vh;
   display: flex;
@@ -256,62 +148,6 @@ const currentIdx = computed(() => props.allItems.findIndex((i) => i.key === prop
   opacity: 1;
 }
 
-.lightbox-content.zoomed {
-  max-width: none;
-  max-height: none;
-  overflow: auto;
-}
-
-/* 缩略图垫底 + 大图叠层淡入；盒子按原图真实宽高比定尺寸（行内 fitStyle） */
-.img-stack {
-  position: relative;
-}
-
-/* 方形缩略图裁切填满，与卡片/克隆体显示一致 */
-.lb-base {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 4px;
-  display: block;
-}
-
-/* 盒子比例 == 原图比例，contain 恰好精确填满 */
-.lb-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.lb-overlay.loaded {
-  opacity: 1;
-}
-
-.lb-zoomed {
-  display: block;
-  border-radius: 4px;
-}
-
-.cursor-zoom-in {
-  cursor: zoom-in;
-}
-
-.cursor-zoom-out {
-  cursor: zoom-out;
-}
-
-.lightbox-loading,
-.lightbox-error {
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 16px;
-  padding: 48px;
-}
-
 .lightbox-counter {
   position: absolute;
   bottom: 16px;
@@ -320,10 +156,50 @@ const currentIdx = computed(() => props.allItems.findIndex((i) => i.key === prop
   color: rgba(255, 255, 255, 0.5);
   font-size: 13px;
 }
+
+/* ── slide: forward (next) ── */
+.slide-next-enter-active,
+.slide-next-leave-active {
+  transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-next-enter-from {
+  opacity: 0;
+  transform: translateX(80px);
+}
+
+.slide-next-leave-to {
+  opacity: 0;
+  transform: translateX(-80px);
+}
+
+/* ── slide: backward (prev) ── */
+.slide-prev-enter-active,
+.slide-prev-leave-active {
+  transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-prev-enter-from {
+  opacity: 0;
+  transform: translateX(-80px);
+}
+
+.slide-prev-leave-to {
+  opacity: 0;
+  transform: translateX(80px);
+}
+
+/* leave 元素脱离 flex 文档流并在容器内居中，避免与新元素并排挤压 */
+.slide-next-leave-active,
+.slide-prev-leave-active {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none;
+}
 </style>
 
 <style>
-/* Lightbox 本身只做背景淡入淡出，位移动画全部由 HomeView 的克隆体承担 */
 .lightbox-enter-active,
 .lightbox-leave-active {
   transition: opacity 0.3s ease;
