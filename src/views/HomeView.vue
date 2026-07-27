@@ -2,12 +2,9 @@
 import { onMounted, watch, ref, computed } from "vue";
 import {
   NButton,
-  NCard,
-  NSpace,
   NIcon,
   NEmpty,
   NSpin,
-  NProgress,
   NTag,
   useMessage,
 } from "naive-ui";
@@ -48,6 +45,7 @@ const lightboxItem = computed(() =>
 );
 
 const showLeftBtn = ref(false);
+const showRightBtn = ref(true);
 
 onMounted(() => {
   auth.checkLogin();
@@ -99,10 +97,14 @@ function animateScroll() {
     el.scrollLeft = scrollTarget;
     scrollAnimRaf = 0;
     showLeftBtn.value = scrollTarget > 1;
+    showRightBtn.value = scrollTarget + el.clientWidth < el.scrollWidth - 1;
     checkLoadMore(el);
     return;
   }
   el.scrollLeft = cur + diff * 0.2;
+  showLeftBtn.value = scrollTarget > 1;
+  showRightBtn.value = scrollTarget + el.clientWidth < el.scrollWidth - 1;
+  checkLoadMore(el);
   scrollAnimRaf = requestAnimationFrame(animateScroll);
 }
 
@@ -117,6 +119,11 @@ function scrollTo(target: number) {
   cancelScrollAnim();
   scrollTarget = Math.max(0, target);
   showLeftBtn.value = scrollTarget > 1;
+  const el = getScrollEl();
+  if (el) {
+    showRightBtn.value = scrollTarget + el.clientWidth < el.scrollWidth - 1;
+    checkLoadMore(el);
+  }
   scrollAnimRaf = requestAnimationFrame(animateScroll);
 }
 
@@ -158,6 +165,12 @@ function pageForward() {
   if (!el) return;
   const cur = scrollAnimRaf ? scrollTarget : el.scrollLeft;
   scrollTo(Math.min(el.scrollWidth - el.clientWidth, cur + arrowStep()));
+}
+
+function pageEnd() {
+  const el = getScrollEl();
+  if (!el) return;
+  scrollTo(el.scrollWidth - el.clientWidth);
 }
 
 function openLightbox(item: FeedItem) {
@@ -240,8 +253,8 @@ function handleRemoveFromTray(key: string) {
           :model-value="feed.kind"
           @update:model-value="handleFeedChange"
         />
-        <NButton circle quaternary size="large" @click="feed.load(feed.kind)" :disabled="feed.loading">
-          <NSpin v-if="feed.loading" :size="18" />
+        <NButton circle quaternary size="large" @click="feed.load(feed.kind)" :disabled="feed.refreshing">
+          <NSpin v-if="feed.refreshing" :size="18" />
           <NIcon v-else :component="RefreshOutline" :size="20" />
         </NButton>
       </div>
@@ -254,16 +267,22 @@ function handleRemoveFromTray(key: string) {
         v-if="feed.items.length > 0"
         class="feed-wrapper"
       >
-        <button v-if="showLeftBtn" class="scroll-arrow scroll-left" @click="pageBackward">
+        <button v-if="showLeftBtn" class="scroll-arrow scroll-left" @click.left="pageBackward" @click.right.prevent="() => scrollTo(0)">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
-        <button class="scroll-arrow scroll-right" @click="pageForward">
+        <button
+          v-if="showRightBtn"
+          class="scroll-arrow scroll-right"
+          @click.left="pageForward"
+          @click.right.prevent="pageEnd"
+        >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
         </button>
-        <TransitionGroup name="card" tag="div"
+        <div
           class="feed-scroll"
           @wheel="onWheel"
         >
+          <TransitionGroup name="card" tag="div" class="feed-cards">
           <div v-for="item in feed.items" :key="item.key" class="card-wrap">
             <ImageCard
               :thumb-b64="item.thumb_b64"
@@ -279,12 +298,11 @@ function handleRemoveFromTray(key: string) {
               @expand="feed.toggleExpand(item.illust_id)"
             />
           </div>
-        </TransitionGroup>
-      </div>
-
-      <div v-if="feed.loading && feed.items.length > 0" class="feed-loading">
-        <NSpin size="small" />
-        <span>加载中...</span>
+          </TransitionGroup>
+          <div v-if="feed.loading" class="scroll-loading">
+            <NSpin size="large" />
+          </div>
+        </div>
       </div>
 
       <SelectedTray
@@ -357,12 +375,17 @@ function handleRemoveFromTray(key: string) {
 }
 
 .feed-scroll {
-  display: flex;
-  gap: 12px;
   overflow: hidden;
-  padding: 4px 4px 4px 4px;
   height: 100%;
   position: relative;
+  display: flex;
+}
+
+.feed-cards {
+  display: flex;
+  gap: 12px;
+  padding: 4px 4px 4px 4px;
+  height: 100%;
 }
 
 .card-wrap {
@@ -370,6 +393,15 @@ function handleRemoveFromTray(key: string) {
   flex-shrink: 0;
   height: 100%;
   aspect-ratio: 2/3;
+}
+
+.scroll-loading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  padding: 4px;
 }
 
 .scroll-arrow {
@@ -414,16 +446,6 @@ function handleRemoveFromTray(key: string) {
 .feed-scroll::-webkit-scrollbar-thumb {
   background: rgba(128, 128, 128, 0.2);
   border-radius: 3px;
-}
-
-.feed-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  opacity: 0.65;
-  font-size: 13px;
-  padding: 8px;
 }
 
 .card-wrap {

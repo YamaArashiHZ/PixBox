@@ -9,6 +9,7 @@ export const useFeedStore = defineStore('feed', () => {
   const kind = ref<FeedKind>('following')
   const nextUrl = ref<string | null>(null)
   const loading = ref(false)
+  const refreshing = ref(false)
   const error = ref<string | null>(null)
   const selectedKeys = ref<Set<string>>(new Set())
   const expandedIds = ref<Set<number>>(new Set())
@@ -65,6 +66,7 @@ export const useFeedStore = defineStore('feed', () => {
     error.value = null
     expandedIds.value = new Set()
     loading.value = true
+    refreshing.value = true
     try {
       const page = await fetchFeed(k === 'recommended' ? 'recommended' : 'following')
       allItems.value = page.items
@@ -73,6 +75,7 @@ export const useFeedStore = defineStore('feed', () => {
       error.value = String(e)
     } finally {
       loading.value = false
+      refreshing.value = false
     }
   }
 
@@ -99,6 +102,7 @@ export const useFeedStore = defineStore('feed', () => {
     kind,
     nextUrl,
     loading,
+    refreshing,
     error,
     selectedKeys,
     isEmpty,

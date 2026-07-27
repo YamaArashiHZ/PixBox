@@ -332,6 +332,11 @@ fn expand_illust(illust: &PixivIllust) -> Vec<(u32, String, String, String)> {
             .iter()
             .enumerate()
             .map(|(i, page)| {
+                let thumb = page
+                    .image_urls
+                    .square_medium
+                    .as_deref()
+                    .unwrap_or_else(|| page.image_urls.medium.as_deref().unwrap_or(""));
                 let original = page.image_urls.original.as_deref().unwrap_or("");
                 let large = page
                     .image_urls
