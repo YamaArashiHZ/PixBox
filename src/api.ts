@@ -61,8 +61,8 @@ export async function logout(): Promise<void> {
   return invoke('logout')
 }
 
-export async function fetchFeed(kind: string, nextUrl?: string): Promise<FeedPage> {
-  return invoke('fetch_feed', { kind, nextUrl })
+export async function fetchFeed(kind: string, nextUrl?: string, contentMode?: string): Promise<FeedPage> {
+  return invoke('fetch_feed', { kind, nextUrl, contentMode })
 }
 
 export async function loadCachedFeed(kind: string): Promise<FeedPage> {

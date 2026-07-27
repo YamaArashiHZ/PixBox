@@ -14,6 +14,7 @@ export const useFeedStore = defineStore('feed', () => {
   const error = ref<string | null>(null)
   const selectedKeys = ref<Set<string>>(new Set())
   const expandedIds = ref<Set<number>>(new Set())
+  const contentMode = ref('all')
   const pendingThumbs = new Map<string, string>()
   let thumbUnlisten: UnlistenFn | null = null
 
@@ -99,7 +100,7 @@ export const useFeedStore = defineStore('feed', () => {
     refreshing.value = true
     try {
       const apiKind = k === 'recommended' ? 'recommended' : 'following'
-      const freshPromise = fetchFeed(apiKind)
+      const freshPromise = fetchFeed(apiKind, undefined, apiKind === 'recommended' ? contentMode.value : undefined)
       if (apiKind === 'following') {
         try {
           const cached = await loadCachedFeed(apiKind)
@@ -124,7 +125,7 @@ export const useFeedStore = defineStore('feed', () => {
     if (loading.value || !nextUrl.value) return
     loading.value = true
     try {
-      const page = await fetchFeed(kind.value, nextUrl.value)
+      const page = await fetchFeed(kind.value, nextUrl.value, kind.value === 'recommended' ? contentMode.value : undefined)
       allItems.value.push(...mergeThumbnails(page.items))
       nextUrl.value = page.next_url
     } catch (e) {
@@ -146,6 +147,7 @@ export const useFeedStore = defineStore('feed', () => {
     loading,
     refreshing,
     error,
+    contentMode,
     selectedKeys,
     isEmpty,
     toggleSelect,

@@ -28,13 +28,7 @@ const thumbSrc = computed(() =>
   <div class="image-card" :class="{ selected }">
     <button class="image-wrap" @click="emit('preview')">
       <img v-if="thumbSrc" :src="thumbSrc" :alt="title" loading="lazy" />
-      <div v-else class="img-placeholder">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(128,128,128,0.35)" stroke-width="1.5">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <polyline points="21 15 16 10 5 21" />
-        </svg>
-      </div>
+      <div v-else class="img-placeholder"></div>
     </button>
 
     <NCheckbox
@@ -134,9 +128,19 @@ const thumbSrc = computed(() =>
 .img-placeholder {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: linear-gradient(
+    100deg,
+    rgba(128, 128, 128, 0.06) 20%,
+    rgba(128, 128, 128, 0.16) 40%,
+    rgba(128, 128, 128, 0.06) 60%
+  );
+  background-size: 240% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
 }
 
 .card-checkbox {

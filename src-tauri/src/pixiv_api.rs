@@ -244,6 +244,7 @@ struct PixivIllust {
     user: PixivIllustUser,
     page_count: u32,
     is_bookmarked: bool,
+    x_restrict: Option<u32>,
     image_urls: IllustImageUrls,
     meta_single_page: Option<MetaSinglePage>,
     meta_pages: Option<Vec<MetaPage>>,
@@ -405,6 +406,7 @@ pub async fn fetch_feed(
     state: tauri::State<'_, AppState>,
     kind: String,
     next_url: Option<String>,
+    content_mode: Option<String>,
 ) -> Result<FeedPage, String> {
     let token = get_or_refresh_token(&app, &state).await?;
     let proxy = crate::load_proxy_setting(&app);
@@ -412,9 +414,16 @@ pub async fn fetch_feed(
 
     let is_initial_load = next_url.is_none();
 
-    let url = next_url.unwrap_or_else(|| match kind.as_str() {
-        "recommended" => "https://app-api.pixiv.net/v1/illust/recommended".to_string(),
-        _ => "https://app-api.pixiv.net/v2/illust/follow?restrict=public".to_string(),
+    let url = next_url.unwrap_or_else(|| {
+        let base = match kind.as_str() {
+            "recommended" => "https://app-api.pixiv.net/v1/illust/recommended".to_string(),
+            _ => "https://app-api.pixiv.net/v2/illust/follow?restrict=public".to_string(),
+        };
+        if kind == "recommended" && content_mode.as_deref() == Some("safe") {
+            format!("{}?filter=for_ios", base)
+        } else {
+            base
+        }
     });
 
     let resp = api_client
@@ -440,6 +449,9 @@ pub async fn fetch_feed(
     let mut items = Vec::new();
     let mut thumb_tasks: Vec<(String, String)> = Vec::new();
     for illust in &feed.illusts {
+        if content_mode.as_deref() == Some("r18") && illust.x_restrict.unwrap_or(0) == 0 {
+            continue;
+        }
         let expanded = expand_illust(illust);
         let artist = illust.user.name.clone();
         let title = illust.title.clone();

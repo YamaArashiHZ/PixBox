@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watch, ref, computed } from "vue";
+import { onMounted, watch, ref, computed, nextTick } from "vue";
 import {
   NButton,
   NIcon,
@@ -46,6 +46,33 @@ const lightboxItem = computed(() =>
 
 const showLeftBtn = ref(false);
 const showRightBtn = ref(true);
+
+const filterRef = ref<HTMLElement | null>(null);
+const indicatorStyle = ref({ left: "0px", width: "0px", opacity: "0" });
+
+async function updateIndicator() {
+  await nextTick();
+  const el = filterRef.value;
+  if (!el) return;
+  const btns = el.querySelectorAll(".cf-btn");
+  const mode = feed.contentMode;
+  const idx = mode === "all" ? 0 : mode === "safe" ? 1 : 2;
+  const btn = btns[idx] as HTMLElement;
+  if (!btn) return;
+  indicatorStyle.value = {
+    left: `${btn.offsetLeft}px`,
+    width: `${btn.offsetWidth}px`,
+    opacity: "1",
+  };
+}
+
+watch(() => feed.contentMode, updateIndicator, { immediate: true });
+watch(() => feed.kind, (k) => { if (k === 'recommended') updateIndicator(); });
+
+function setContentMode(mode: string) {
+  feed.contentMode = mode;
+  feed.load("recommended");
+}
 
 onMounted(() => {
   auth.checkLogin();
@@ -257,6 +284,12 @@ function handleRemoveFromTray(key: string) {
           <NSpin v-if="feed.refreshing" :size="18" />
           <NIcon v-else :component="RefreshOutline" :size="20" />
         </NButton>
+        <div v-if="feed.kind === 'recommended'" class="content-filter" ref="filterRef">
+          <div class="cf-indicator" :style="indicatorStyle" />
+          <button class="cf-btn" :class="{ active: feed.contentMode === 'all' }" @click="setContentMode('all')">全部</button>
+          <button class="cf-btn" :class="{ active: feed.contentMode === 'safe' }" @click="setContentMode('safe')">全年龄</button>
+          <button class="cf-btn" :class="{ active: feed.contentMode === 'r18' }" @click="setContentMode('r18')">R-18</button>
+        </div>
       </div>
 
       <div v-if="feed.error" class="feed-error">{{ feed.error }}</div>
@@ -363,6 +396,46 @@ function handleRemoveFromTray(key: string) {
   align-items: center;
   gap: 12px;
   padding: 2px 0;
+}
+
+.content-filter {
+  display: flex;
+  gap: 0;
+  align-items: center;
+  margin-left: auto;
+  position: relative;
+  padding: 2px 0;
+}
+
+.cf-indicator {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 14px;
+  background: rgba(128, 128, 128, 0.15);
+  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.cf-btn {
+  position: relative;
+  z-index: 1;
+  padding: 3px 12px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: #999;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.cf-btn:hover,
+.cf-btn.active {
+  color: #333;
 }
 
 .feed-error {
