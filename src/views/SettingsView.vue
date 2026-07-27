@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import {
   NCard,
   NSpace,
@@ -16,6 +16,7 @@ import { FolderOpenOutline, PersonOutline, LogOutOutline } from "@vicons/ionicon
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppConfig } from "../composables/useAppConfig";
 import { useAuthStore } from "../stores/auth";
+import { getCacheSize, clearCache } from "../api";
 import { invoke } from "@tauri-apps/api/core";
 
 const message = useMessage();
@@ -32,6 +33,8 @@ const auth = useAuthStore();
 
 const testing = ref(false);
 const testResult = ref<{ ok: boolean; text: string } | null>(null);
+const cacheSize = ref<number | null>(null);
+const clearingCache = ref(false);
 
 async function chooseDir(target: "save_dir" | "compress_dir") {
   const dir = await open({ directory: true, title: "选择目录" });
@@ -53,6 +56,24 @@ async function testConnection() {
     testing.value = false;
   }
 }
+
+async function loadCacheSize() {
+  try { cacheSize.value = await getCacheSize(); } catch { cacheSize.value = null; }
+}
+
+async function doClearCache() {
+  clearingCache.value = true;
+  try { await clearCache(); cacheSize.value = 0; } catch { /* ignore */ }
+  finally { clearingCache.value = false; }
+}
+
+function fmtBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1048576).toFixed(1)} MB`
+}
+
+onMounted(() => { loadCacheSize(); })
 </script>
 
 <template>
@@ -132,6 +153,13 @@ async function testConnection() {
             </div>
           </Transition>
         </n-space>
+      </n-card>
+
+      <n-card title="缓存" size="small">
+        <div class="account-row">
+          <n-text>{{ cacheSize !== null ? `缓存大小: ${fmtBytes(cacheSize)}` : '加载中...' }}</n-text>
+          <n-button size="small" :loading="clearingCache" @click="doClearCache">删除缓存</n-button>
+        </div>
       </n-card>
 
       <n-card title="账号" size="small">

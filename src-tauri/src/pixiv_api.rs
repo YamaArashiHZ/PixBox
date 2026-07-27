@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Emitter, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 
 use crate::http;
@@ -281,7 +281,7 @@ struct MetaImageUrls {
     original: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FeedItem {
     pub key: String,
     pub illust_id: u64,
@@ -295,7 +295,7 @@ pub struct FeedItem {
     pub is_bookmarked: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FeedPage {
     pub items: Vec<FeedItem>,
     pub next_url: Option<String>,
@@ -410,7 +410,7 @@ pub async fn fetch_feed(
     let proxy = crate::load_proxy_setting(&app);
     let api_client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
 
-    let img_client = http::create_client_with_referer(proxy.as_deref())?;
+    let is_initial_load = next_url.is_none();
 
     let url = next_url.unwrap_or_else(|| match kind.as_str() {
         "recommended" => "https://app-api.pixiv.net/v1/illust/recommended".to_string(),
@@ -438,6 +438,7 @@ pub async fn fetch_feed(
         serde_json::from_str(&text).map_err(|e| format!("Parse error: {e}"))?;
 
     let mut items = Vec::new();
+    let mut thumb_tasks: Vec<(String, String)> = Vec::new();
     for illust in &feed.illusts {
         let expanded = expand_illust(illust);
         let artist = illust.user.name.clone();
@@ -451,19 +452,14 @@ pub async fn fetch_feed(
                 format!("{}_p0", illust.id)
             };
 
-            let thumb_data = download_thumbnail(&img_client, &thumb_url).await;
-            let thumb_b64 = if thumb_data.is_empty() {
-                String::new()
-            } else {
-                BASE64.encode(&thumb_data)
-            };
+            thumb_tasks.push((key.clone(), thumb_url));
 
             items.push(FeedItem {
                 key,
                 illust_id: illust.id,
                 page,
                 page_count: illust.page_count,
-                thumb_b64,
+                thumb_b64: String::new(),
                 large_url,
                 original_url,
                 title: title.clone(),
@@ -473,10 +469,106 @@ pub async fn fetch_feed(
         }
     }
 
-    Ok(FeedPage {
+    let result = FeedPage {
         items,
         next_url: feed.next_url,
-    })
+    };
+
+    let img_client = http::create_client_with_referer(proxy.as_deref())?;
+    let cache_kind = if is_initial_load && kind == "following" { Some(kind.clone()) } else { None };
+    let cache_app = app.clone();
+    let emit_app = app.clone();
+    let mut cache_page = result.clone();
+    tokio::spawn(async move {
+        let b64_map = download_thumbnails_bg(img_client, thumb_tasks, emit_app).await;
+        for item in &mut cache_page.items {
+            if let Some(b64) = b64_map.get(&item.key) {
+                item.thumb_b64 = b64.clone();
+            }
+        }
+        if let Some(k) = cache_kind {
+            save_feed_cache(&cache_app, &k, &cache_page);
+        }
+    });
+
+    Ok(result)
+}
+
+async fn download_thumbnails_bg(
+    client: reqwest::Client,
+    tasks: Vec<(String, String)>,
+    app: AppHandle,
+) -> std::collections::HashMap<String, String> {
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
+    let results = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut handles = Vec::new();
+    for (key, url) in tasks {
+        let client = client.clone();
+        let app = app.clone();
+        let sem = semaphore.clone();
+        let results = results.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire().await;
+            let data = download_thumbnail(&client, &url).await;
+            let b64 = if data.is_empty() {
+                String::new()
+            } else {
+                BASE64.encode(&data)
+            };
+            app.emit("thumbnail-event", ThumbProgress { key: key.clone(), thumb_b64: b64.clone() }).ok();
+            results.lock().unwrap().insert(key, b64);
+        }));
+    }
+    for h in handles {
+        h.await.ok();
+    }
+    Arc::try_unwrap(results)
+        .map(|m| m.into_inner().unwrap())
+        .unwrap_or_else(|arc| arc.lock().unwrap().clone())
+}
+
+#[tauri::command]
+pub fn get_cache_size(app: AppHandle) -> Result<u64, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let mut total = 0u64;
+    for kind in &["following"] {
+        let path = dir.join(format!("feed_cache_{}.json", kind));
+        if let Ok(meta) = std::fs::metadata(&path) {
+            total += meta.len();
+        }
+    }
+    Ok(total)
+}
+
+#[tauri::command]
+pub fn clear_cache(app: AppHandle) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    for kind in &["following"] {
+        let path = dir.join(format!("feed_cache_{}.json", kind));
+        std::fs::remove_file(&path).ok();
+    }
+    Ok(())
+}
+
+fn cache_path(app: &AppHandle, kind: &str) -> std::path::PathBuf {
+    app.path()
+        .app_data_dir()
+        .unwrap_or_default()
+        .join(format!("feed_cache_{}.json", kind))
+}
+
+fn save_feed_cache(app: &AppHandle, kind: &str, feed: &FeedPage) {
+    if let Ok(json) = serde_json::to_string(&feed) {
+        let path = cache_path(app, kind);
+        std::fs::write(&path, json).ok();
+    }
+}
+
+#[tauri::command]
+pub fn load_cached_feed(app: AppHandle, kind: String) -> Result<FeedPage, String> {
+    let path = cache_path(&app, &kind);
+    let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -566,6 +658,12 @@ pub struct ProgressEvent {
     pub percent: u32,
     pub key: String,
     pub status: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ThumbProgress {
+    pub key: String,
+    pub thumb_b64: String,
 }
 
 #[derive(Debug, Serialize)]

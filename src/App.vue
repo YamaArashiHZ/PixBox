@@ -15,6 +15,7 @@ import HomeView from "./views/HomeView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import AboutView from "./views/AboutView.vue";
 import { useAppConfig, loadAppConfig } from "./composables/useAppConfig";
+import { useFeedStore } from "./stores/feed";
 import type { AppPage } from "./types";
 
 const page = ref<AppPage>("home");
@@ -154,6 +155,8 @@ const osEvents = {
 
 onMounted(async () => {
   await loadAppConfig();
+  const feed = useFeedStore();
+  await feed.startThumbListener();
   ready.value = true;
 });
 

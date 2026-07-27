@@ -264,14 +264,14 @@ function handleRemoveFromTray(key: string) {
       <NEmpty v-if="feed.isEmpty && !feed.loading" description="暂无图片" class="feed-empty" />
 
       <div
-        v-if="feed.items.length > 0"
+        v-if="feed.items.length > 0 || feed.loading"
         class="feed-wrapper"
       >
-        <button v-if="showLeftBtn" class="scroll-arrow scroll-left" @click.left="pageBackward" @click.right.prevent="() => scrollTo(0)">
+        <button v-if="feed.items.length > 0 && showLeftBtn" class="scroll-arrow scroll-left" @click.left="pageBackward" @click.right.prevent="() => scrollTo(0)">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
         <button
-          v-if="showRightBtn"
+          v-if="feed.items.length > 0 && showRightBtn"
           class="scroll-arrow scroll-right"
           @click.left="pageForward"
           @click.right.prevent="pageEnd"
@@ -282,24 +282,35 @@ function handleRemoveFromTray(key: string) {
           class="feed-scroll"
           @wheel="onWheel"
         >
-          <TransitionGroup name="card" tag="div" class="feed-cards">
-          <div v-for="item in feed.items" :key="item.key" class="card-wrap">
-            <ImageCard
-              :thumb-b64="item.thumb_b64"
-              :title="item.title"
-              :artist="item.artist"
-              :is-bookmarked="item.is_bookmarked"
-              :selected="feed.isSelected(item.key)"
-              :page="item.page"
-              :page-count="item.page_count"
-              :expanded="feed.isExpanded(item.illust_id)"
-              @toggle="feed.toggleSelect(item.key)"
-              @preview="openLightbox(item)"
-              @expand="feed.toggleExpand(item.illust_id)"
-            />
+          <div v-if="feed.items.length === 0" class="feed-cards skeleton-list">
+            <div v-for="i in 6" :key="i" class="card-wrap">
+              <div class="skeleton-card">
+                <div class="skeleton-image shimmer" />
+                <div class="skeleton-info">
+                  <span class="skeleton-line skeleton-line-short shimmer" />
+                  <span class="skeleton-line shimmer" />
+                </div>
+              </div>
+            </div>
           </div>
+          <TransitionGroup v-else name="card" tag="div" class="feed-cards">
+            <div v-for="item in feed.items" :key="item.key" class="card-wrap">
+              <ImageCard
+                :thumb-b64="item.thumb_b64"
+                :title="item.title"
+                :artist="item.artist"
+                :is-bookmarked="item.is_bookmarked"
+                :selected="feed.isSelected(item.key)"
+                :page="item.page"
+                :page-count="item.page_count"
+                :expanded="feed.isExpanded(item.illust_id)"
+                @toggle="feed.toggleSelect(item.key)"
+                @preview="openLightbox(item)"
+                @expand="feed.toggleExpand(item.illust_id)"
+              />
+            </div>
           </TransitionGroup>
-          <div v-if="feed.loading" class="scroll-loading">
+          <div v-if="feed.items.length > 0 && feed.loading" class="scroll-loading">
             <NSpin size="large" />
           </div>
         </div>
@@ -393,6 +404,54 @@ function handleRemoveFromTray(key: string) {
   flex-shrink: 0;
   height: 100%;
   aspect-ratio: 2/3;
+}
+
+.skeleton-card {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--preview-bg);
+}
+
+.skeleton-image {
+  height: calc(100% - 52px);
+}
+
+.skeleton-info {
+  height: 52px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.skeleton-line {
+  display: block;
+  width: 72%;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.skeleton-line-short {
+  width: 42%;
+}
+
+.shimmer {
+  background: linear-gradient(
+    100deg,
+    rgba(128, 128, 128, 0.08) 20%,
+    rgba(128, 128, 128, 0.2) 40%,
+    rgba(128, 128, 128, 0.08) 60%
+  );
+  background-size: 240% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
 }
 
 .scroll-loading {

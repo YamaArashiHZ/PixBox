@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchFeed, type FeedItem } from '../api'
+import { fetchFeed, loadCachedFeed, type FeedItem, type ThumbProgress } from '../api'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export type FeedKind = 'following' | 'recommended'
 
@@ -13,6 +14,35 @@ export const useFeedStore = defineStore('feed', () => {
   const error = ref<string | null>(null)
   const selectedKeys = ref<Set<string>>(new Set())
   const expandedIds = ref<Set<number>>(new Set())
+  const pendingThumbs = new Map<string, string>()
+  let thumbUnlisten: UnlistenFn | null = null
+
+  function mergeThumbnails(incoming: FeedItem[]): FeedItem[] {
+    const existing = new Map(
+      allItems.value
+        .filter((item) => item.thumb_b64)
+        .map((item) => [item.key, item.thumb_b64]),
+    )
+
+    return incoming.map((item) => {
+      const thumb = item.thumb_b64 || pendingThumbs.get(item.key) || existing.get(item.key) || ''
+      pendingThumbs.delete(item.key)
+      return thumb === item.thumb_b64 ? item : { ...item, thumb_b64: thumb }
+    })
+  }
+
+  async function startThumbListener() {
+    if (thumbUnlisten) return
+    thumbUnlisten = await listen<ThumbProgress>('thumbnail-event', (event) => {
+      const p = event.payload
+      const idx = allItems.value.findIndex((i) => i.key === p.key)
+      if (idx !== -1) {
+        allItems.value[idx] = { ...allItems.value[idx], thumb_b64: p.thumb_b64 }
+      } else {
+        pendingThumbs.set(p.key, p.thumb_b64)
+      }
+    })
+  }
 
   const items = computed<FeedItem[]>(() => {
     const seen = new Set<number>()
@@ -68,8 +98,19 @@ export const useFeedStore = defineStore('feed', () => {
     loading.value = true
     refreshing.value = true
     try {
-      const page = await fetchFeed(k === 'recommended' ? 'recommended' : 'following')
-      allItems.value = page.items
+      const apiKind = k === 'recommended' ? 'recommended' : 'following'
+      const freshPromise = fetchFeed(apiKind)
+      if (apiKind === 'following') {
+        try {
+          const cached = await loadCachedFeed(apiKind)
+          allItems.value = mergeThumbnails(cached.items)
+          nextUrl.value = cached.next_url
+        } catch {
+          // No cache yet; skeleton cards remain until fresh metadata arrives.
+        }
+      }
+      const page = await freshPromise
+      allItems.value = mergeThumbnails(page.items)
       nextUrl.value = page.next_url
     } catch (e) {
       error.value = String(e)
@@ -84,7 +125,7 @@ export const useFeedStore = defineStore('feed', () => {
     loading.value = true
     try {
       const page = await fetchFeed(kind.value, nextUrl.value)
-      allItems.value.push(...page.items)
+      allItems.value.push(...mergeThumbnails(page.items))
       nextUrl.value = page.next_url
     } catch (e) {
       error.value = String(e)
@@ -95,6 +136,7 @@ export const useFeedStore = defineStore('feed', () => {
 
   function clearItems() {
     allItems.value = []
+    pendingThumbs.clear()
   }
 
   return {
@@ -112,6 +154,7 @@ export const useFeedStore = defineStore('feed', () => {
     toggleExpand,
     isExpanded,
     clearItems,
+    startThumbListener,
     load,
     loadMore,
   }

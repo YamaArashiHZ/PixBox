@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { NCheckbox, NIcon, NTooltip } from "naive-ui";
 
 const props = defineProps<{
@@ -18,7 +19,9 @@ const emit = defineEmits<{
   expand: [];
 }>();
 
-const thumbSrc = props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "";
+const thumbSrc = computed(() =>
+  props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "",
+);
 </script>
 
 <template>

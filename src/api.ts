@@ -38,6 +38,11 @@ export interface ProgressEvent {
   status: string
 }
 
+export interface ThumbProgress {
+  key: string
+  thumb_b64: string
+}
+
 export interface SaveReport {
   success: number
   failed: number
@@ -60,6 +65,10 @@ export async function fetchFeed(kind: string, nextUrl?: string): Promise<FeedPag
   return invoke('fetch_feed', { kind, nextUrl })
 }
 
+export async function loadCachedFeed(kind: string): Promise<FeedPage> {
+  return invoke('load_cached_feed', { kind })
+}
+
 export async function getImageData(url: string): Promise<string> {
   return invoke('get_image_data', { url })
 }
@@ -75,4 +84,12 @@ export async function saveImages(
 
 export async function testProxy(proxy: string): Promise<number> {
   return invoke('test_proxy', { proxy })
+}
+
+export async function getCacheSize(): Promise<number> {
+  return invoke('get_cache_size')
+}
+
+export async function clearCache(): Promise<void> {
+  return invoke('clear_cache')
 }
