@@ -47,27 +47,27 @@ function fitBox() {
   return { w, h };
 }
 
-const fitStyle = computed(() => {
-  const { w, h } = fitBox();
-  return { width: `${w}px`, height: `${h}px` };
-});
-
+// zoom-layer 以 fit 尺寸居中于全屏视口（left:50% + 负 margin），
+// transform 以元素中心（== 窗口中心）为原点缩放，pan 为屏幕像素偏移
 const zoomLayerStyle = computed(() => {
-  const t =
-    zoomScale.value <= 1 && panX.value === 0 && panY.value === 0
-      ? ""
-      : `translate(${panX.value}px, ${panY.value}px) scale(${zoomScale.value})`;
+  const { w, h } = fitBox();
   return {
-    transform: t,
+    width: `${w}px`,
+    height: `${h}px`,
+    marginLeft: `${-w / 2}px`,
+    marginTop: `${-h / 2}px`,
+    transform: `translate(${panX.value}px, ${panY.value}px) scale(${zoomScale.value})`,
     transition: isPanning.value ? "none" : "transform 0.15s ease-out",
   };
 });
 
-// ── pan clamping ──
+// ── pan clamping：视口为整个窗口；图片小于窗口的方向锁定居中 ──
 function clampPan() {
   const { w, h } = fitBox();
-  const maxPanX = (w * (zoomScale.value - 1)) / 2;
-  const maxPanY = (h * (zoomScale.value - 1)) / 2;
+  const vpW = window.innerWidth;
+  const vpH = window.innerHeight;
+  const maxPanX = Math.max(0, (w * zoomScale.value - vpW) / 2);
+  const maxPanY = Math.max(0, (h * zoomScale.value - vpH) / 2);
   panX.value = Math.max(-maxPanX, Math.min(maxPanX, panX.value));
   panY.value = Math.max(-maxPanY, Math.min(maxPanY, panY.value));
 }
@@ -90,14 +90,8 @@ function onWheel(e: WheelEvent) {
   panY.value = my - (my - panY.value) * ratio;
 
   zoomScale.value = newScale;
-
-  if (newScale <= 1) {
-    zoomScale.value = 1;
-    panX.value = 0;
-    panY.value = 0;
-  } else {
-    clampPan();
-  }
+  // 图片小于窗口的方向会被 clamp 到 0（居中），大于窗口的方向限制边缘
+  clampPan();
 }
 
 // ── pan (drag) ──
@@ -171,7 +165,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="img-frame" :style="fitStyle">
+  <div class="img-frame">
     <div
       v-if="imageData"
       class="img-stack"
@@ -197,25 +191,30 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 全屏视口：放大后的图片可铺满整个窗口，超出部分被裁剪 */
 .img-frame {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
-  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* 事件层铺满视口：整个窗口内均可滚轮缩放、拖拽平移 */
 .img-stack {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.zoom-layer {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
+}
+
+/* fit 尺寸居中于视口（left:50% + 负 margin 由内联样式提供），随 transform 缩放/平移 */
+.zoom-layer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  overflow: hidden;
+  border-radius: 4px;
   will-change: transform;
 }
 
