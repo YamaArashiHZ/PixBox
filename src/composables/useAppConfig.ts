@@ -1,6 +1,7 @@
 import { computed, reactive, toRefs, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { ThemeMode } from "../types";
+import { getEffectiveDir } from "../utils/subdir";
 
 export interface AppConfig {
   proxy_enabled: boolean;
@@ -50,6 +51,15 @@ export async function loadAppConfig() {
   }
 }
 
+// 强制 compress_separate 始终为 true（原图和压缩图不可同目录）
+watch(
+  () => state.compress_separate,
+  (v) => {
+    if (!v) state.compress_separate = true;
+  },
+  { immediate: true }
+);
+
 async function persist() {
   if (!loaded) return;
   try {
@@ -60,6 +70,15 @@ async function persist() {
 }
 
 watch(state, () => { void persist(); }, { deep: true });
+
+const hasPathConflict = computed(() => {
+  if (!state.compress_enabled) return false;
+  const now = new Date();
+  const origDir = getEffectiveDir(state.save_dir, state.use_subdir, state.subdir_pattern, now);
+  const compDir = getEffectiveDir(state.compress_dir, state.compress_use_subdir, state.compress_subdir_pattern, now);
+  if (!origDir || !compDir) return false;
+  return origDir.toLowerCase() === compDir.toLowerCase();
+});
 
 export function useAppConfig() {
   function toggleTheme() {
@@ -82,6 +101,7 @@ export function useAppConfig() {
     compress_max_mb: simpleRefs.compress_max_mb,
     image_cache_limit_mb: simpleRefs.image_cache_limit_mb,
     theme: simpleRefs.theme,
+    hasPathConflict,
     toggleTheme,
     loadAppConfig,
   };

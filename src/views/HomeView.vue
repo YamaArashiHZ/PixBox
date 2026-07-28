@@ -18,6 +18,7 @@ import ImageCard from "../components/ImageCard.vue";
 import Lightbox from "../components/Lightbox.vue";
 import { preloadImage } from "../utils/imageCache";
 import SelectedTray from "../components/SelectedTray.vue";
+import { useAppConfig } from "../composables/useAppConfig";
 
 const message = useMessage();
 const auth = useAuthStore();
@@ -34,6 +35,13 @@ const cloneEl = ref<HTMLElement | null>(null);
 const cloneCurrent = ref({ left: "0px", top: "0px", width: "0px", height: "0px", borderRadius: "12px" });
 const saving = ref(false);
 const saveProgress = ref<number | null>(null);
+
+const { hasPathConflict } = useAppConfig();
+const saveWarning = computed(() =>
+  hasPathConflict.value
+    ? "原图与压缩图保存路径重合，请先修改设置"
+    : null
+);
 
 const FLIGHT_MS = 300;
 let flightToken = 0;
@@ -533,6 +541,7 @@ function handleClearSelection() {
         :items="selectedItems"
         :progress="saveProgress"
         :saving="saving"
+        :saveWarning="saveWarning"
         @remove="handleRemoveFromTray"
         @save="handleSave"
         @clear="handleClearSelection"

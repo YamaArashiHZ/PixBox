@@ -1,7 +1,6 @@
 // 前端复刻 src-tauri/src/pixiv_api.rs 中的 build_subdir，
 // 用于设置页实时预览最终保存路径。两边逻辑必须保持一致。
-export function renderSubdirPattern(pattern: string): string {
-  const now = new Date();
+export function renderSubdirPatternAt(pattern: string, now: Date): string {
   const pad = (n: number, w: number) => String(n).padStart(w, "0");
   const chars = [...pattern];
   let result = "";
@@ -10,7 +9,6 @@ export function renderSubdirPattern(pattern: string): string {
   while (i < chars.length) {
     if (chars[i] === "%" && i + 1 < chars.length) {
       const c = chars[i + 1];
-      // 统计同一字母的连续重复次数
       let len = 1;
       while (i + 1 + len < chars.length && chars[i + 1 + len] === c) len++;
 
@@ -32,7 +30,6 @@ export function renderSubdirPattern(pattern: string): string {
         result += token;
         i += 1 + len;
       } else {
-        // 未识别的占位符，原样输出
         result += "%";
         i += 1;
       }
@@ -43,6 +40,10 @@ export function renderSubdirPattern(pattern: string): string {
   }
 
   return result.replace(/[\\/]/g, "_").replace(/\.\./g, "_");
+}
+
+export function renderSubdirPattern(pattern: string): string {
+  return renderSubdirPatternAt(pattern, new Date());
 }
 
 // 拼接示例保存路径：base + 可选子文件夹 + 示例文件名
@@ -56,4 +57,20 @@ export function buildPathPreview(
   const parts = [baseDir.replace(/[\\/]+$/, "")];
   if (useSubdir && pattern) parts.push(renderSubdirPattern(pattern));
   return parts.join("\\") + "\\" + fileName;
+}
+
+// 计算生效目录（不含文件名），用于冲突检测。
+// now 可选；不传则用当前时间。冲突检测应传入同一个 now 保证可比性。
+export function getEffectiveDir(
+  dir: string,
+  useSubdir: boolean,
+  pattern: string,
+  now?: Date
+): string {
+  if (!dir) return "";
+  const base = dir.replace(/[\\/]+$/, "");
+  if (useSubdir && pattern) {
+    return base + "\\" + renderSubdirPatternAt(pattern, now ?? new Date());
+  }
+  return base;
 }

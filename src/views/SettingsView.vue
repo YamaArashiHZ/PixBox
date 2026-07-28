@@ -8,11 +8,10 @@ import {
   NInputNumber,
   NSelect,
   NSwitch,
-  NRadioGroup,
-  NRadioButton,
   NTag,
   NIcon,
   NText,
+  NAlert,
   useMessage,
 } from "naive-ui";
 import { FolderOpenOutline, PersonOutline, LogOutOutline } from "@vicons/ionicons5";
@@ -32,12 +31,12 @@ const {
   use_subdir,
   subdir_pattern,
   compress_enabled,
-  compress_separate,
   compress_dir,
   compress_use_subdir,
   compress_subdir_pattern,
   compress_max_mb,
   image_cache_limit_mb,
+  hasPathConflict,
 } = useAppConfig();
 const auth = useAuthStore();
 
@@ -55,19 +54,12 @@ function onLimitModeChange(v: string) {
   image_cache_limit_mb.value = v === "unlimited" ? null : 200;
 }
 
-// compress_separate (boolean) 与单选控件 (string) 的桥接
-const compressLocation = computed({
-  get: () => (compress_separate.value ? "separate" : "same"),
-  set: (v: string) => { compress_separate.value = v === "separate"; },
-});
-
 // 最终落盘路径实时预览（逻辑与后端 build_subdir 一致）
 const savePreview = computed(() =>
   buildPathPreview(save_dir.value, use_subdir.value, subdir_pattern.value, "12345678_p0.jpg")
 );
 const compressPreview = computed(() => {
   if (!compress_enabled.value) return null;
-  if (!compress_separate.value) return savePreview.value; // 与原图同目录
   return buildPathPreview(
     compress_dir.value,
     compress_use_subdir.value,
@@ -190,6 +182,17 @@ onMounted(() => { loadCacheSize(); })
         </n-text>
 
         <n-space v-else vertical :size="14" style="width: 100%">
+          <n-alert
+            v-if="hasPathConflict"
+            type="error"
+            :bordered="false"
+            style="margin-bottom: 0"
+          >
+            <template #header>
+              原图与压缩图保存路径重合，将导致文件名冲突。请修改压缩图保存路径或独立文件夹设置。
+            </template>
+          </n-alert>
+
           <div class="setting-row">
             <n-text depth="3" class="label">压缩最大大小</n-text>
             <div class="input-row">
@@ -205,35 +208,23 @@ onMounted(() => { loadCacheSize(); })
           </div>
 
           <div class="setting-row">
-            <n-text depth="3" class="label">压缩图保存位置</n-text>
-            <n-radio-group v-model:value="compressLocation">
-              <n-radio-button value="same">与原图同目录</n-radio-button>
-              <n-radio-button value="separate">独立目录</n-radio-button>
-            </n-radio-group>
+            <n-text depth="3" class="label">压缩保存路径</n-text>
+            <div class="input-row">
+              <n-input :value="compress_dir" placeholder="选择压缩图保存目录..." readonly />
+              <n-button secondary @click="chooseDir('compress_dir')">
+                <n-icon :component="FolderOpenOutline" :size="16" />
+              </n-button>
+            </div>
+          </div>
+
+          <div class="setting-row toggle-row">
+            <n-text depth="3">每次保存在独立文件夹中</n-text>
+            <n-switch v-model:value="compress_use_subdir" />
           </div>
 
           <Transition name="collapse">
-            <div v-if="compress_separate" class="collapsible-section indent-section">
-              <div class="setting-row">
-                <n-text depth="3" class="label">压缩保存路径</n-text>
-                <div class="input-row">
-                  <n-input :value="compress_dir" placeholder="选择压缩图保存目录..." readonly />
-                  <n-button secondary @click="chooseDir('compress_dir')">
-                    <n-icon :component="FolderOpenOutline" :size="16" />
-                  </n-button>
-                </div>
-              </div>
-
-              <div class="setting-row toggle-row">
-                <n-text depth="3">每次保存在独立文件夹中</n-text>
-                <n-switch v-model:value="compress_use_subdir" />
-              </div>
-
-              <Transition name="collapse">
-                <div v-if="compress_use_subdir" class="collapsible-section indent-section">
-                  <SubdirPatternField v-model="compress_subdir_pattern" label="独立文件夹命名" />
-                </div>
-              </Transition>
+            <div v-if="compress_use_subdir" class="collapsible-section indent-section">
+              <SubdirPatternField v-model="compress_subdir_pattern" label="独立文件夹命名" />
             </div>
           </Transition>
 

@@ -8,6 +8,7 @@ const props = defineProps<{
   items: FeedItem[];
   progress: number | null;
   saving: boolean;
+  saveWarning?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -140,9 +141,10 @@ onUnmounted(() => {
             {{ progress }}%
           </n-progress>
         </div>
+        <span v-if="saveWarning" class="tray-warning">{{ saveWarning }}</span>
         <n-button
           type="primary"
-          :disabled="items.length === 0"
+          :disabled="items.length === 0 || !!saveWarning"
           :loading="saving"
           @click="emit('save')"
         >
@@ -229,6 +231,12 @@ onUnmounted(() => {
   flex: 1;
   margin: 0 16px;
   flex-shrink: 0;
+}
+
+.tray-warning {
+  font-size: 12px;
+  color: #e74c3c;
+  white-space: nowrap;
 }
 
 .tray-thumbs {
