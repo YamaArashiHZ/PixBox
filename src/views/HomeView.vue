@@ -775,8 +775,8 @@ function handleRemoveFromTray(key: string) {
 .card-wrap::before {
   content: "";
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: -2px;
+  bottom: -2px;
   left: 0;
   right: 0;
   z-index: -1;
@@ -785,7 +785,7 @@ function handleRemoveFromTray(key: string) {
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 外框：整组一圈 3px 主题色描边，条带位于 [卡片外3px, 卡片边缘]，
+/* 外框：整组一圈 2px 主题色描边，条带位于 [卡片外2px, 卡片边缘]，
    与封面卡描边环完全重叠，仅组两端圆角 */
 .card-wrap.grp-start::before,
 .card-wrap.grp-mid::before,
@@ -794,19 +794,19 @@ function handleRemoveFromTray(key: string) {
   opacity: 1;
   --grp-line: var(--primary-soft);
   box-shadow:
-    inset 0 3px 0 var(--grp-line),
-    inset 0 -3px 0 var(--grp-line);
+    inset 0 2px 0 var(--grp-line),
+    inset 0 -2px 0 var(--grp-line);
 }
 
 /* 组内间隙 12px，相邻外框各延伸 8px 桥接（同色不透明，重叠无缝） */
 .card-wrap.grp-start::before {
-  left: -3px;
+  left: -2px;
   right: -8px;
-  border-radius: 15px 0 0 15px;
+  border-radius: 14px 0 0 14px;
   box-shadow:
-    inset 3px 0 0 var(--grp-line),
-    inset 0 3px 0 var(--grp-line),
-    inset 0 -3px 0 var(--grp-line);
+    inset 2px 0 0 var(--grp-line),
+    inset 0 2px 0 var(--grp-line),
+    inset 0 -2px 0 var(--grp-line);
 }
 
 .card-wrap.grp-mid::before {
@@ -820,26 +820,26 @@ function handleRemoveFromTray(key: string) {
   right: -8px;
   border-radius: 0 20px 20px 0;
   box-shadow:
-    inset -3px 0 0 var(--grp-line),
-    inset 0 3px 0 var(--grp-line),
-    inset 0 -3px 0 var(--grp-line);
+    inset -2px 0 0 var(--grp-line),
+    inset 0 2px 0 var(--grp-line),
+    inset 0 -2px 0 var(--grp-line);
 }
 
 .card-wrap.grp-single::before {
-  left: -3px;
+  left: -2px;
   right: -8px;
-  border-radius: 15px 20px 20px 15px;
+  border-radius: 14px 20px 20px 14px;
   box-shadow:
-    inset 3px 0 0 var(--grp-line),
-    inset -3px 0 0 var(--grp-line),
-    inset 0 3px 0 var(--grp-line),
-    inset 0 -3px 0 var(--grp-line);
+    inset 2px 0 0 var(--grp-line),
+    inset -2px 0 0 var(--grp-line),
+    inset 0 2px 0 var(--grp-line),
+    inset 0 -2px 0 var(--grp-line);
 }
 
-/* 封面卡：全高大卡 + 3px 描边环 */
+/* 封面卡：全高大卡 + 2px 描边环 */
 .card-wrap.grp-cover {
   border-radius: 12px;
-  box-shadow: 0 0 0 3px var(--primary-soft);
+  box-shadow: 0 0 0 2px var(--primary-soft);
   transition: box-shadow 0.18s ease;
 }
 
@@ -851,10 +851,10 @@ function handleRemoveFromTray(key: string) {
 
 .card-wrap.grp-cover:hover,
 .card-wrap.grp-cover.card-selected {
-  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 12px rgba(91, 124, 250, 0.35);
+  box-shadow: 0 0 0 2px var(--primary-soft), 0 0 12px rgba(91, 124, 250, 0.35);
 }
 
-/* 子页卡：缩小至 88% 并居中，带 3px 描边环（保留 hover/选中发光反馈） */
+/* 子页卡：缩小至 96% 并居中，带 2px 描边环（保留 hover/选中发光反馈） */
 .card-wrap.grp-sub {
   display: flex;
   align-items: center;
@@ -863,15 +863,15 @@ function handleRemoveFromTray(key: string) {
 
 .card-wrap.grp-sub :deep(.image-card) {
   height: 96%;
-  box-shadow: 0 0 0 3px var(--primary-soft);
+  box-shadow: 0 0 0 2px var(--primary-soft);
 }
 
 .card-wrap.grp-sub :deep(.image-card:hover) {
-  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 8px rgba(91, 124, 250, 0.25);
+  box-shadow: 0 0 0 2px var(--primary-soft), 0 0 8px rgba(91, 124, 250, 0.25);
 }
 
 .card-wrap.grp-sub :deep(.image-card.selected) {
-  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 12px rgba(91, 124, 250, 0.45);
+  box-shadow: 0 0 0 2px var(--primary-soft), 0 0 12px rgba(91, 124, 250, 0.45);
 }
 
 .card-enter-active {
