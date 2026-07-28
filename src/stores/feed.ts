@@ -5,8 +5,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export type FeedKind = 'following' | 'recommended'
 
-// 封面卡：多图帖展开时注入的"帖子代表"，cover 标记用于区分真实页
-export type DisplayItem = FeedItem & { cover?: boolean }
+// 封面卡：多图帖展开时第 1 页就地扮演"帖子代表"，cover 标记用于区分展示形态
+// selKey：镜像子卡（1/N）的选择绑定到真实页 key，避免托盘/保存出现重复
+export type DisplayItem = FeedItem & { cover?: boolean; selKey?: string }
 
 export const useFeedStore = defineStore('feed', () => {
   const allItems = ref<FeedItem[]>([])
@@ -57,11 +58,14 @@ export const useFeedStore = defineStore('feed', () => {
         continue
       }
       seen.add(item.illust_id)
-      // 展开的多图帖：在真实页序列前注入封面卡（大卡 + 收起按钮）
+      // 展开的多图帖：第 1 页就地转为封面卡（key 不变、位置不动，避免动画断层），
+      // 其子页 1/N 由镜像卡顶替，选择仍绑定真实 key
       if (item.page_count > 1 && expandedIds.value.has(item.illust_id)) {
-        result.push({ ...item, key: `${item.key}-cover`, cover: true })
+        result.push({ ...item, cover: true })
+        result.push({ ...item, key: `${item.key}-sub`, selKey: item.key })
+      } else {
+        result.push(item)
       }
-      result.push(item)
     }
     return result
   })

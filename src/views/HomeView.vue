@@ -489,7 +489,7 @@ function handleRemoveFromTray(key: string) {
               v-for="(item, i) in feed.items"
               :key="item.key"
               class="card-wrap"
-              :class="[groupClass(i), { 'card-selected': isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.key) }]"
+              :class="[groupClass(i), { 'card-selected': isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.selKey ?? item.key) }]"
             >
               <ImageCard
                 :item-key="item.key"
@@ -498,13 +498,13 @@ function handleRemoveFromTray(key: string) {
                 :title="item.title"
                 :artist="item.artist"
                 :is-bookmarked="item.is_bookmarked"
-                :selected="isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.key)"
+                :selected="isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.selKey ?? item.key)"
                 :indeterminate="isGroupCard(item) ? feed.isSomeSelected(item.illust_id) : false"
                 :page="item.page"
                 :page-count="item.page_count"
                 :expanded="feed.isExpanded(item.illust_id)"
                 :cover="item.cover"
-                @toggle="isGroupCard(item) ? feed.toggleSelectIllust(item.illust_id) : feed.toggleSelect(item.key)"
+                @toggle="isGroupCard(item) ? feed.toggleSelectIllust(item.illust_id) : feed.toggleSelect(item.selKey ?? item.key)"
                 @preview="openLightbox(item)"
                 @expand="feed.toggleExpand(item.illust_id)"
                 @toggle-bookmark="feed.doToggleBookmark(item.illust_id, item.is_bookmarked)"
@@ -771,18 +771,27 @@ function handleRemoveFromTray(key: string) {
 }
 
 /* ===== 多图展开组：描边式画框 ===== */
+/* 伪元素常驻但透明，展开时淡入、收起时淡出，避免外框突兀出现 */
+.card-wrap::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 0;
+  right: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* 外框：整组一圈 3px 主题色描边，条带位于 [卡片外3px, 卡片边缘]，
    与封面卡描边环完全重叠，仅组两端圆角 */
 .card-wrap.grp-start::before,
 .card-wrap.grp-mid::before,
 .card-wrap.grp-end::before,
 .card-wrap.grp-single::before {
-  content: "";
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  z-index: -1;
-  pointer-events: none;
+  opacity: 1;
   --grp-line: var(--primary-soft);
   box-shadow:
     inset 0 3px 0 var(--grp-line),
