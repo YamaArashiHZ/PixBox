@@ -19,6 +19,8 @@ export interface FeedItem {
   is_bookmarked: boolean
   width: number
   height: number
+  x_restrict: number
+  illust_ai_type: number
 }
 
 export interface FeedPage {

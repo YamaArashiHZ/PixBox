@@ -179,9 +179,14 @@ export const useFeedStore = defineStore('feed', () => {
         allItems.value = mergeThumbnails([...recPage.items, ...extraRank])
         nextUrl.value = recPage.next_url
       } else if (k === 'recommended' && contentMode.value === 'r18') {
-        const page = await fetchFeed('ranking', undefined, undefined)
-        allItems.value = mergeThumbnails(page.items)
-        nextUrl.value = page.next_url
+        const [recPage, rankPage] = await Promise.all([
+          fetchFeed('recommended', undefined, 'r18'),
+          fetchFeed('ranking', undefined, undefined),
+        ])
+        const recIds = new Set(recPage.items.map((i) => i.illust_id))
+        const extraRank = rankPage.items.filter((i) => !recIds.has(i.illust_id))
+        allItems.value = mergeThumbnails([...recPage.items, ...extraRank])
+        nextUrl.value = recPage.next_url
       } else {
         const apiKind = k === 'recommended' ? 'recommended' : 'following'
         const freshPromise = fetchFeed(apiKind, undefined, apiKind === 'recommended' ? contentMode.value : undefined)
@@ -221,8 +226,8 @@ export const useFeedStore = defineStore('feed', () => {
     loading.value = true
     try {
       let page: FeedPage
-      if (kind.value === 'recommended' && contentMode.value === 'r18') {
-        page = await fetchFeed('ranking', nextUrl.value, undefined)
+        if (kind.value === 'recommended' && contentMode.value === 'r18') {
+          page = await fetchFeed('recommended', nextUrl.value, 'r18')
       } else {
         page = await fetchFeed(kind.value, nextUrl.value, kind.value === 'recommended' ? contentMode.value : undefined)
       }

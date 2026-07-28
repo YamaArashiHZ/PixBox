@@ -245,6 +245,7 @@ struct PixivIllust {
     page_count: u32,
     is_bookmarked: bool,
     x_restrict: Option<u32>,
+    illust_ai_type: Option<u32>,
     #[serde(default)]
     width: u32,
     #[serde(default)]
@@ -302,6 +303,10 @@ pub struct FeedItem {
     pub width: u32,
     #[serde(default)]
     pub height: u32,
+    #[serde(default)]
+    pub x_restrict: u32,
+    #[serde(default)]
+    pub illust_ai_type: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -488,6 +493,8 @@ pub async fn fetch_feed(
                 is_bookmarked,
                 width: illust.width,
                 height: illust.height,
+                x_restrict: illust.x_restrict.unwrap_or(0),
+                illust_ai_type: illust.illust_ai_type.unwrap_or(0),
             });
         }
     }

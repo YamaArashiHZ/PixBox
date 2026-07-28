@@ -9,6 +9,8 @@ const props = defineProps<{
   thumbB64: string;
   title: string;
   artist: string;
+  xRestrict?: number;
+  illustAiType?: number;
   isBookmarked: boolean;
   selected: boolean;
   indeterminate?: boolean;
@@ -108,7 +110,11 @@ function openPost() {
     <div class="card-info">
       <div class="card-text">
         <span class="artist">{{ artist }}</span>
-        <span class="card-title" :title="title">{{ title }}</span>
+        <div class="title-row">
+          <span v-if="illustAiType === 2" class="tag-badge ai">AI生成</span>
+          <span v-if="xRestrict" class="tag-badge r18">{{ xRestrict >= 2 ? "R-18G" : "R-18" }}</span>
+          <span class="card-title" :title="title">{{ title }}</span>
+        </div>
       </div>
       <NTooltip :delay="300">
         <template #trigger>
@@ -335,10 +341,37 @@ function openPost() {
   text-overflow: ellipsis;
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tag-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.tag-badge.r18 {
+  background: #ff4060;
+}
+
+.tag-badge.ai {
+  background: #0096fa;
+}
+
 .card-title {
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 </style>

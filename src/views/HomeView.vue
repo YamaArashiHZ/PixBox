@@ -517,6 +517,8 @@ function handleClearSelection() {
                 :thumb-b64="item.thumb_b64"
                 :title="item.title"
                 :artist="item.artist"
+                :x-restrict="item.x_restrict"
+                :illust-ai-type="item.illust_ai_type"
                 :is-bookmarked="item.is_bookmarked"
                 :selected="isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.selKey ?? item.key)"
                 :indeterminate="isGroupCard(item) ? feed.isSomeSelected(item.illust_id) : false"
