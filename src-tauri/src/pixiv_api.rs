@@ -799,16 +799,67 @@ pub struct SaveReport {
     pub errors: Vec<String>,
 }
 
-async fn bookmark_add(state: &AppState, token: &str, illust_id: u64) {
+async fn bookmark_add(state: &AppState, token: &str, illust_id: u64) -> Result<(), String> {
     let client = state.client.lock().unwrap().clone();
     if let Some(client) = client {
-        let _ = client
-            .post("https://app-api.pixiv.net/v1/illust/bookmark/add")
+        let resp = client
+            .post("https://app-api.pixiv.net/v2/illust/bookmark/add")
+            .header("Authorization", format!("Bearer {token}"))
+            .form(&[
+                ("illust_id", illust_id.to_string()),
+                ("restrict", "public".to_string()),
+            ])
+            .send()
+            .await
+            .map_err(|e| format!("bookmark add request failed: {e}"))?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            eprintln!("bookmark_add failed ({}): {}", status, text);
+            return Err(format!("bookmark add failed ({}): {}", status, text));
+        }
+        eprintln!("bookmark_add OK illust_id={illust_id} body={text}");
+    }
+    Ok(())
+}
+
+async fn bookmark_delete(state: &AppState, token: &str, illust_id: u64) -> Result<(), String> {
+    let client = state.client.lock().unwrap().clone();
+    if let Some(client) = client {
+        let resp = client
+            .post("https://app-api.pixiv.net/v1/illust/bookmark/delete")
             .header("Authorization", format!("Bearer {token}"))
             .form(&[("illust_id", illust_id.to_string())])
             .send()
-            .await;
+            .await
+            .map_err(|e| format!("bookmark delete request failed: {e}"))?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            eprintln!("bookmark_delete failed ({}): {}", status, text);
+            return Err(format!("bookmark delete failed ({}): {}", status, text));
+        }
+        eprintln!("bookmark_delete OK illust_id={illust_id} body={text}");
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_bookmark(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    illust_id: u64,
+    is_bookmarked: bool,
+) -> Result<(), String> {
+    let token = get_or_refresh_token(&app, &state).await?;
+    if is_bookmarked {
+        bookmark_delete(&state, &token, illust_id).await?;
+    } else {
+        bookmark_add(&state, &token, illust_id).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -916,7 +967,7 @@ pub async fn save_images(
             })
             .map_err(|e| e.to_string())?;
 
-        bookmark_add(&state, &token, item.illust_id).await;
+        let _ = bookmark_add(&state, &token, item.illust_id).await;
 
         if i < total - 1 {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;

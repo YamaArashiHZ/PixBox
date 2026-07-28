@@ -20,11 +20,14 @@ const emit = defineEmits<{
   toggle: [];
   preview: [];
   expand: [];
+  toggleBookmark: [];
 }>();
 
 const thumbSrc = computed(() =>
   props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "",
 );
+
+const showHeart = computed(() => props.page === 0);
 
 // 用系统默认浏览器打开 Pixiv 帖子页
 function openPost() {
@@ -71,9 +74,9 @@ function openPost() {
       预览
     </NTooltip>
 
-    <NTooltip :delay="300">
+    <NTooltip v-if="showHeart" :delay="300">
       <template #trigger>
-        <button class="heart-btn" :class="{ active: isBookmarked }" @click.stop>
+        <button class="heart-btn" :class="{ active: isBookmarked }" @click.stop="emit('toggleBookmark')">
           <svg v-if="isBookmarked" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>

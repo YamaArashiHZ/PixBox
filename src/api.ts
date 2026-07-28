@@ -99,3 +99,7 @@ export async function clearCache(): Promise<void> {
 export async function enforceCacheLimit(): Promise<void> {
   return invoke('enforce_cache_limit')
 }
+
+export async function toggleBookmark(illustId: number, isBookmarked: boolean): Promise<void> {
+  return invoke('toggle_bookmark', { illustId, isBookmarked })
+}

@@ -479,6 +479,7 @@ function handleRemoveFromTray(key: string) {
                 @toggle="feed.toggleSelect(item.key)"
                 @preview="openLightbox(item)"
                 @expand="feed.toggleExpand(item.illust_id)"
+                @toggle-bookmark="feed.doToggleBookmark(item.illust_id, item.is_bookmarked)"
               />
             </div>
           </TransitionGroup>

@@ -38,6 +38,7 @@ pub fn run() {
             pixiv_api::get_image_data,
             pixiv_api::enforce_cache_limit,
             pixiv_api::save_images,
+            pixiv_api::toggle_bookmark,
             pixiv_api::test_proxy,
             get_settings,
             set_settings,

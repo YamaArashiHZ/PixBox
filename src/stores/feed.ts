@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchFeed, loadCachedFeed, type FeedItem, type ThumbProgress } from '../api'
+import { fetchFeed, loadCachedFeed, toggleBookmark, type FeedItem, type ThumbProgress } from '../api'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export type FeedKind = 'following' | 'recommended'
@@ -92,6 +92,10 @@ export const useFeedStore = defineStore('feed', () => {
 
   async function load(k: FeedKind) {
     kind.value = k
+    const oldBookmarks = new Map<number, boolean>()
+    for (const item of allItems.value) {
+      oldBookmarks.set(item.illust_id, item.is_bookmarked)
+    }
     allItems.value = []
     nextUrl.value = null
     error.value = null
@@ -104,7 +108,17 @@ export const useFeedStore = defineStore('feed', () => {
       if (apiKind === 'following') {
         try {
           const cached = await loadCachedFeed(apiKind)
-          allItems.value = mergeThumbnails(cached.items)
+          let items = mergeThumbnails(cached.items)
+          if (oldBookmarks.size > 0) {
+            items = items.map((item) => {
+              const bm = oldBookmarks.get(item.illust_id)
+              if (bm !== undefined && bm !== item.is_bookmarked) {
+                return { ...item, is_bookmarked: bm }
+              }
+              return item
+            })
+          }
+          allItems.value = items
           nextUrl.value = cached.next_url
         } catch {
           // No cache yet; skeleton cards remain until fresh metadata arrives.
@@ -140,6 +154,23 @@ export const useFeedStore = defineStore('feed', () => {
     pendingThumbs.clear()
   }
 
+  async function doToggleBookmark(illustId: number, isBookmarked: boolean) {
+    const idx = allItems.value.findIndex((i) => i.illust_id === illustId)
+    if (idx === -1) return
+
+    const newItems = [...allItems.value]
+    newItems[idx] = { ...newItems[idx], is_bookmarked: !isBookmarked }
+    allItems.value = newItems
+
+    try {
+      await toggleBookmark(illustId, isBookmarked)
+    } catch {
+      const rollback = [...allItems.value]
+      rollback[idx] = { ...rollback[idx], is_bookmarked }
+      allItems.value = rollback
+    }
+  }
+
   return {
     items,
     kind,
@@ -157,6 +188,7 @@ export const useFeedStore = defineStore('feed', () => {
     isExpanded,
     clearItems,
     startThumbListener,
+    doToggleBookmark,
     load,
     loadMore,
   }
