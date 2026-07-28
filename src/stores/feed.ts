@@ -5,6 +5,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export type FeedKind = 'following' | 'recommended'
 
+// 封面卡：多图帖展开时注入的"帖子代表"，cover 标记用于区分真实页
+export type DisplayItem = FeedItem & { cover?: boolean }
+
 export const useFeedStore = defineStore('feed', () => {
   const allItems = ref<FeedItem[]>([])
   const kind = ref<FeedKind>('following')
@@ -45,18 +48,30 @@ export const useFeedStore = defineStore('feed', () => {
     })
   }
 
-  const items = computed<FeedItem[]>(() => {
+  const items = computed<DisplayItem[]>(() => {
     const seen = new Set<number>()
-    return allItems.value.filter((item) => {
+    const result: DisplayItem[] = []
+    for (const item of allItems.value) {
       if (seen.has(item.illust_id)) {
-        return expandedIds.value.has(item.illust_id)
+        if (expandedIds.value.has(item.illust_id)) result.push(item)
+        continue
       }
       seen.add(item.illust_id)
-      return true
-    })
+      // 展开的多图帖：在真实页序列前注入封面卡（大卡 + 收起按钮）
+      if (item.page_count > 1 && expandedIds.value.has(item.illust_id)) {
+        result.push({ ...item, key: `${item.key}-cover`, cover: true })
+      }
+      result.push(item)
+    }
+    return result
   })
 
   const isEmpty = computed(() => items.value.length === 0 && !loading.value)
+
+  // 已选条目基于全量数据：收起多图帖后，各页选中记录仍保留在托盘中
+  const selectedItems = computed<FeedItem[]>(() =>
+    allItems.value.filter((i) => selectedKeys.value.has(i.key)),
+  )
 
   function toggleSelect(key: string) {
     const s = new Set(selectedKeys.value)
@@ -70,6 +85,35 @@ export const useFeedStore = defineStore('feed', () => {
 
   function isSelected(key: string): boolean {
     return selectedKeys.value.has(key)
+  }
+
+  // 整帖选择：封面卡勾选时选中/取消该帖全部真实页
+  function illustKeys(illustId: number): string[] {
+    return allItems.value.filter((i) => i.illust_id === illustId).map((i) => i.key)
+  }
+
+  function isAllSelected(illustId: number): boolean {
+    const keys = illustKeys(illustId)
+    return keys.length > 0 && keys.every((k) => selectedKeys.value.has(k))
+  }
+
+  // 部分页已选（封面卡复选框显示半选态）
+  function isSomeSelected(illustId: number): boolean {
+    const keys = illustKeys(illustId)
+    let n = 0
+    for (const k of keys) if (selectedKeys.value.has(k)) n++
+    return n > 0 && n < keys.length
+  }
+
+  function toggleSelectIllust(illustId: number) {
+    const keys = illustKeys(illustId)
+    const s = new Set(selectedKeys.value)
+    if (keys.length > 0 && keys.every((k) => s.has(k))) {
+      keys.forEach((k) => s.delete(k))
+    } else {
+      keys.forEach((k) => s.add(k))
+    }
+    selectedKeys.value = s
   }
 
   function clearSelection() {
@@ -166,7 +210,7 @@ export const useFeedStore = defineStore('feed', () => {
       await toggleBookmark(illustId, isBookmarked)
     } catch {
       const rollback = [...allItems.value]
-      rollback[idx] = { ...rollback[idx], is_bookmarked }
+      rollback[idx] = { ...rollback[idx], is_bookmarked: isBookmarked }
       allItems.value = rollback
     }
   }
@@ -180,9 +224,13 @@ export const useFeedStore = defineStore('feed', () => {
     error,
     contentMode,
     selectedKeys,
+    selectedItems,
     isEmpty,
     toggleSelect,
     isSelected,
+    isAllSelected,
+    isSomeSelected,
+    toggleSelectIllust,
     clearSelection,
     toggleExpand,
     isExpanded,

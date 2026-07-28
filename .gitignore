@@ -2,6 +2,7 @@
 node_modules/
 
 # Build output
+.temp
 dist/
 src-tauri/target/
 src-tauri/gen/
@@ -22,6 +23,7 @@ Thumbs.db
 .env.*
 
 # Project docs
+.opencode
 pixbox.md
 ref/
 run_dev.bat

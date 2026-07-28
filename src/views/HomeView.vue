@@ -10,7 +10,7 @@ import {
 } from "naive-ui";
 import { RefreshOutline, SaveOutline, ImageOutline } from "@vicons/ionicons5";
 import { useAuthStore } from "../stores/auth";
-import { useFeedStore, type FeedKind } from "../stores/feed";
+import { useFeedStore, type FeedKind, type DisplayItem } from "../stores/feed";
 import type { FeedItem, ProgressEvent } from "../api";
 import { saveImages } from "../api";
 import SegmentedControl from "../components/SegmentedControl.vue";
@@ -43,12 +43,15 @@ const feedOptions = [
   { label: "推荐", value: "recommended" },
 ];
 
-const selectedItems = computed<FeedItem[]>(() =>
-  feed.items.filter((i) => feed.isSelected(i.key))
-);
+const selectedItems = computed<FeedItem[]>(() => feed.selectedItems);
+
+// "帖子级"卡片（封面卡 / 收起状态的多图主图）：复选框反映整帖选择状态，点击=全选/取消全帖
+function isGroupCard(item: DisplayItem): boolean {
+  return !!item.cover || (item.page_count > 1 && !feed.isExpanded(item.illust_id));
+}
 
 const lightboxAllItems = computed(() =>
-  feed.items.map((i) => ({ key: i.key, large_url: i.large_url }))
+  feed.items.filter((i) => !i.cover).map((i) => ({ key: i.key, large_url: i.large_url }))
 );
 
 const lightboxItem = computed(() =>
@@ -115,6 +118,18 @@ watch(
 
 function handleFeedChange(kind: string) {
   feed.load(kind as FeedKind);
+}
+
+// 多图展开组：按相邻 illust_id 判定分组位置，用于描边画框样式
+// 封面卡（cover）为大卡 + 收起入口；其余为缩小的子页卡
+function groupClass(i: number): string | null {
+  const list = feed.items;
+  const item = list[i];
+  if (!item || item.page_count <= 1 || !feed.isExpanded(item.illust_id)) return null;
+  const start = i === 0 || list[i - 1].illust_id !== item.illust_id;
+  const end = i === list.length - 1 || list[i + 1].illust_id !== item.illust_id;
+  const pos = start && end ? "grp-single" : start ? "grp-start" : end ? "grp-end" : "grp-mid";
+  return item.cover ? `${pos} grp-cover` : `${pos} grp-sub`;
 }
 
 const CARD_GAP = 12;
@@ -289,13 +304,19 @@ function preloadAdjacent(key: string) {
   if (idx < lightboxAllItems.value.length - 1) preloadImage(lightboxAllItems.value[idx + 1].large_url);
 }
 
-function openLightbox(item: FeedItem) {
+function openLightbox(item: DisplayItem) {
   const token = ++flightToken;
+  // 封面卡预览该帖第 1 页：灯箱 key 用其后的真实页，飞行动画起点仍用被点击的封面卡
+  const domKey = item.key;
+  if (item.cover) {
+    const idx = feed.items.findIndex((i) => i.key === item.key);
+    item = feed.items[idx + 1] ?? item;
+  }
   lightboxKey.value = item.key;
   lightboxVisible.value = true;
   lightboxReady.value = false;
   cardRect.value = null;
-  if (!captureCard(item.key, item) || !item.thumb_b64) {
+  if (!captureCard(domKey, item) || !item.thumb_b64) {
     lightboxReady.value = true;
     return;
   }
@@ -464,7 +485,12 @@ function handleRemoveFromTray(key: string) {
             </div>
           </div>
           <TransitionGroup v-else name="card" tag="div" class="feed-cards">
-            <div v-for="item in feed.items" :key="item.key" class="card-wrap">
+            <div
+              v-for="(item, i) in feed.items"
+              :key="item.key"
+              class="card-wrap"
+              :class="[groupClass(i), { 'card-selected': isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.key) }]"
+            >
               <ImageCard
                 :item-key="item.key"
                 :illust-id="item.illust_id"
@@ -472,11 +498,13 @@ function handleRemoveFromTray(key: string) {
                 :title="item.title"
                 :artist="item.artist"
                 :is-bookmarked="item.is_bookmarked"
-                :selected="feed.isSelected(item.key)"
+                :selected="isGroupCard(item) ? feed.isAllSelected(item.illust_id) : feed.isSelected(item.key)"
+                :indeterminate="isGroupCard(item) ? feed.isSomeSelected(item.illust_id) : false"
                 :page="item.page"
                 :page-count="item.page_count"
                 :expanded="feed.isExpanded(item.illust_id)"
-                @toggle="feed.toggleSelect(item.key)"
+                :cover="item.cover"
+                @toggle="isGroupCard(item) ? feed.toggleSelectIllust(item.illust_id) : feed.toggleSelect(item.key)"
                 @preview="openLightbox(item)"
                 @expand="feed.toggleExpand(item.illust_id)"
                 @toggle-bookmark="feed.doToggleBookmark(item.illust_id, item.is_bookmarked)"
@@ -623,7 +651,7 @@ function handleRemoveFromTray(key: string) {
 .feed-cards {
   display: flex;
   gap: 12px;
-  padding: 4px 4px 4px 4px;
+  padding: 8px;
   height: 100%;
 }
 
@@ -742,8 +770,102 @@ function handleRemoveFromTray(key: string) {
   aspect-ratio: 2/3;
 }
 
-.card-enter-active,
-.card-leave-active {
+/* ===== 多图展开组：描边式画框 ===== */
+/* 外框：整组一圈 3px 主题色描边，条带位于 [卡片外3px, 卡片边缘]，
+   与封面卡描边环完全重叠，仅组两端圆角 */
+.card-wrap.grp-start::before,
+.card-wrap.grp-mid::before,
+.card-wrap.grp-end::before,
+.card-wrap.grp-single::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  z-index: -1;
+  pointer-events: none;
+  --grp-line: var(--primary-soft);
+  box-shadow:
+    inset 0 3px 0 var(--grp-line),
+    inset 0 -3px 0 var(--grp-line);
+}
+
+/* 组内间隙 12px，相邻外框各延伸 8px 桥接（同色不透明，重叠无缝） */
+.card-wrap.grp-start::before {
+  left: -3px;
+  right: -8px;
+  border-radius: 15px 0 0 15px;
+  box-shadow:
+    inset 3px 0 0 var(--grp-line),
+    inset 0 3px 0 var(--grp-line),
+    inset 0 -3px 0 var(--grp-line);
+}
+
+.card-wrap.grp-mid::before {
+  left: -8px;
+  right: -8px;
+}
+
+/* 外框右边竖条外扩至 -8px：与末位子卡描边环拉开内边距，右端圆角相应增大 */
+.card-wrap.grp-end::before {
+  left: -8px;
+  right: -8px;
+  border-radius: 0 20px 20px 0;
+  box-shadow:
+    inset -3px 0 0 var(--grp-line),
+    inset 0 3px 0 var(--grp-line),
+    inset 0 -3px 0 var(--grp-line);
+}
+
+.card-wrap.grp-single::before {
+  left: -3px;
+  right: -8px;
+  border-radius: 15px 20px 20px 15px;
+  box-shadow:
+    inset 3px 0 0 var(--grp-line),
+    inset -3px 0 0 var(--grp-line),
+    inset 0 3px 0 var(--grp-line),
+    inset 0 -3px 0 var(--grp-line);
+}
+
+/* 封面卡：全高大卡 + 3px 描边环 */
+.card-wrap.grp-cover {
+  border-radius: 12px;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+  transition: box-shadow 0.18s ease;
+}
+
+/* 组图末尾与后续卡片之间留出适度间隔（配合外框右竖条外扩） */
+.card-wrap.grp-end,
+.card-wrap.grp-single {
+  margin-right: 6px;
+}
+
+.card-wrap.grp-cover:hover,
+.card-wrap.grp-cover.card-selected {
+  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 12px rgba(91, 124, 250, 0.35);
+}
+
+/* 子页卡：缩小至 88% 并居中，带 3px 描边环（保留 hover/选中发光反馈） */
+.card-wrap.grp-sub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-wrap.grp-sub :deep(.image-card) {
+  height: 96%;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.card-wrap.grp-sub :deep(.image-card:hover) {
+  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 8px rgba(91, 124, 250, 0.25);
+}
+
+.card-wrap.grp-sub :deep(.image-card.selected) {
+  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 12px rgba(91, 124, 250, 0.45);
+}
+
+.card-enter-active {
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -752,14 +874,26 @@ function handleRemoveFromTray(key: string) {
   transform: translateX(-24px) scale(0.92);
 }
 
-.card-leave-to {
-  opacity: 0;
-  transform: translateX(24px) scale(0.92);
+/* 离开元素不脱流：height → 0（aspect-ratio 同步收拢宽度）+ 吃掉尾部间隙，
+   后续卡片随布局自然平滑左移，实现"折叠收起" */
+.card-leave-active {
+  z-index: 1;
+  transition:
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.card-leave-active {
-  position: absolute;
-  z-index: 1;
+/* 离开期间禁用内卡自身的 height 过渡，使其即时跟随容器收拢，避免溢出滞后 */
+.card-leave-active :deep(.image-card) {
+  transition: none;
+}
+
+/* 提高优先级，确保折叠时 margin 收拢覆盖组图末尾的 margin-right */
+.card-wrap.card-leave-to {
+  opacity: 0;
+  height: 0;
+  margin-right: -12px;
 }
 
 .card-move {

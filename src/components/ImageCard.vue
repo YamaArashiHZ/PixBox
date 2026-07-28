@@ -11,9 +11,11 @@ const props = defineProps<{
   artist: string;
   isBookmarked: boolean;
   selected: boolean;
+  indeterminate?: boolean;
   page: number;
   pageCount: number;
   expanded: boolean;
+  cover?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -27,7 +29,8 @@ const thumbSrc = computed(() =>
   props.thumbB64 ? `data:image/jpeg;base64,${props.thumbB64}` : "",
 );
 
-const showHeart = computed(() => props.page === 0);
+// 收藏按钮只出现在"帖子代表"上：封面卡（展开时）或首页卡（未展开时）
+const showHeart = computed(() => props.cover || (props.page === 0 && !props.expanded));
 
 // 用系统默认浏览器打开 Pixiv 帖子页
 function openPost() {
@@ -44,12 +47,13 @@ function openPost() {
 
     <NCheckbox
       :checked="selected"
+      :indeterminate="indeterminate"
       class="card-checkbox"
       @update:checked="emit('toggle')"
       @click.stop
     />
 
-    <NTooltip v-if="pageCount > 1 && page === 0" :delay="300">
+    <NTooltip v-if="cover || (pageCount > 1 && page === 0 && !expanded)" :delay="300">
       <template #trigger>
         <button class="page-badge" @click.stop="emit('expand')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -60,6 +64,19 @@ function openPost() {
         </button>
       </template>
       {{ expanded ? "收起" : `展开全部 ${pageCount} 页` }}
+    </NTooltip>
+
+    <NTooltip v-else-if="pageCount > 1 && expanded" :delay="300">
+      <template #trigger>
+        <span class="page-badge page-index">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H8z" opacity="0.5"/>
+            <path d="M4 2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4z"/>
+          </svg>
+          <span>{{ page + 1 }}/{{ pageCount }}</span>
+        </span>
+      </template>
+      第 {{ page + 1 }} 页 / 共 {{ pageCount }} 页（同帖多图）
     </NTooltip>
 
     <NTooltip :delay="300">
@@ -118,7 +135,7 @@ function openPost() {
   flex-shrink: 0;
   border-radius: 12px;
   overflow: hidden;
-  transition: box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease, height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   border: 1px solid var(--border-color);
   background: var(--preview-bg);
@@ -197,6 +214,13 @@ function openPost() {
 
 .page-badge:hover {
   background: rgba(0, 0, 0, 0.65);
+}
+
+/* 展开后第 2 页起的静态页码标识，不可点击 */
+.page-badge.page-index,
+.page-badge.page-index:hover {
+  cursor: default;
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .page-badge svg {
