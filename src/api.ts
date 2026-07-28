@@ -38,6 +38,8 @@ export interface ProgressEvent {
   percent: number
   key: string
   status: string
+  downloaded_bytes: number
+  total_bytes: number
 }
 
 export interface ThumbProgress {

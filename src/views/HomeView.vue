@@ -410,6 +410,10 @@ async function handleSave() {
 function handleRemoveFromTray(key: string) {
   feed.toggleSelect(key);
 }
+
+function handleClearSelection() {
+  feed.clearSelection();
+}
 </script>
 
 <template>
@@ -523,6 +527,7 @@ function handleRemoveFromTray(key: string) {
         :saving="saving"
         @remove="handleRemoveFromTray"
         @save="handleSave"
+        @clear="handleClearSelection"
       />
     </template>
 

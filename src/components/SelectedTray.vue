@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import { NButton, NIcon, NProgress } from "naive-ui";
-import { CloseOutline } from "@vicons/ionicons5";
+import { CloseOutline, CloseCircleOutline } from "@vicons/ionicons5";
 import type { FeedItem } from "../api";
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   remove: [key: string];
   save: [];
+  clear: [];
 }>();
 
 const thumbSrc = (item: FeedItem) =>
@@ -115,7 +116,30 @@ onUnmounted(() => {
   <div class="selected-tray">
     <div class="tray-bar">
       <div class="tray-info">
-        <span class="tray-count">已选 {{ items.length }} 张</span>
+        <span class="tray-count-group">
+          <span class="tray-count">已选 {{ items.length }} 张</span>
+          <n-button
+            text
+            :disabled="items.length === 0"
+            class="tray-clear-btn"
+            @click="emit('clear')"
+          >
+            <n-icon :component="CloseCircleOutline" :size="16" />
+            清空
+          </n-button>
+        </span>
+        <div v-if="progress !== null" class="tray-progress">
+          <n-progress
+            type="line"
+            :percentage="progress"
+            :show-indicator="true"
+            processing
+            status="info"
+            :height="4"
+          >
+            {{ progress }}%
+          </n-progress>
+        </div>
         <n-button
           type="primary"
           :disabled="items.length === 0"
@@ -130,17 +154,6 @@ onUnmounted(() => {
           </svg>
           {{ saving ? "保存中..." : `保存图片 (${items.length})` }}
         </n-button>
-      </div>
-
-      <div v-if="progress !== null" class="tray-progress">
-        <n-progress
-          type="line"
-          :percentage="progress"
-          :show-indicator="true"
-          processing
-          status="info"
-          :height="4"
-        />
       </div>
 
       <div class="tray-thumbs">
@@ -194,13 +207,27 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.tray-count-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .tray-count {
   font-size: 15px;
   font-weight: 600;
 }
 
+.tray-clear-btn {
+  font-size: 15px;
+  font-weight: 600;
+  color: #FF0000;
+  gap: 4px;
+}
+
 .tray-progress {
-  margin-bottom: 12px;
+  flex: 1;
+  margin: 0 16px;
   flex-shrink: 0;
 }
 

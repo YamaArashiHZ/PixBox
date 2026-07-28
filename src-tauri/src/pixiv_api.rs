@@ -784,6 +784,8 @@ pub struct ProgressEvent {
     pub percent: u32,
     pub key: String,
     pub status: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -885,26 +887,75 @@ pub async fn save_images(
     let mut success = 0;
     let mut errors: Vec<String> = Vec::new();
 
+    on_progress
+        .send(ProgressEvent {
+            current: 0,
+            total,
+            percent: 0,
+            key: String::new(),
+            status: "preparing".into(),
+            downloaded_bytes: 0,
+            total_bytes: 0,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut file_sizes: Vec<u64> = Vec::with_capacity(total);
+    for item in &items {
+        match download::get_content_length(&img_client, &item.original_url).await {
+            Ok(len) => file_sizes.push(len),
+            Err(e) => {
+                eprintln!("[save_images] HEAD size for {}: {e}", item.key);
+                file_sizes.push(0);
+            }
+        }
+    }
+    let total_bytes: u64 = file_sizes.iter().sum();
+
+    let mut downloaded_bytes: u64 = 0;
+
     for (i, item) in items.iter().enumerate() {
         let key = &item.key;
+        let file_total = file_sizes[i];
 
         on_progress
             .send(ProgressEvent {
                 current: i,
                 total,
-                percent: ((i as f64 / total as f64) * 100.0) as u32,
+                percent: if total_bytes > 0 { ((downloaded_bytes as f64 / total_bytes as f64) * 100.0) as u32 } else { ((i as f64 / total as f64) * 100.0) as u32 },
                 key: key.clone(),
                 status: "downloading".into(),
+                downloaded_bytes,
+                total_bytes,
             })
             .map_err(|e| e.to_string())?;
 
-        let (data, ext) = match download::download_image(&img_client, &item.original_url).await {
+        let (data, ext, actual_size) = match download::download_image_streaming(
+            &img_client,
+            &item.original_url,
+            |file_downloaded, _file_total| {
+                let _ = on_progress.send(ProgressEvent {
+                    current: i,
+                    total,
+                    percent: if total_bytes > 0 {
+                        ((downloaded_bytes + file_downloaded) as f64 / total_bytes as f64 * 100.0) as u32
+                    } else {
+                        ((i as f64 + file_downloaded as f64 / 1u64.max(file_total) as f64) / total as f64 * 100.0) as u32
+                    },
+                    key: key.clone(),
+                    status: "downloading".into(),
+                    downloaded_bytes: downloaded_bytes + file_downloaded,
+                    total_bytes,
+                });
+            },
+        ).await {
             Ok(d) => d,
             Err(e) => {
                 errors.push(format!("{key}: {e}"));
                 continue;
             }
         };
+
+        downloaded_bytes += actual_size;
 
         if ext == "gif" {
             errors.push(format!("{key}: GIF skipped (v1 limitation)"));
@@ -915,9 +966,11 @@ pub async fn save_images(
             .send(ProgressEvent {
                 current: i,
                 total,
-                percent: ((i as f64 / total as f64) * 100.0) as u32,
+                percent: if total_bytes > 0 { ((downloaded_bytes as f64 / total_bytes as f64) * 100.0) as u32 } else { ((i as f64 / total as f64) * 100.0) as u32 },
                 key: key.clone(),
                 status: "saving".into(),
+                downloaded_bytes,
+                total_bytes,
             })
             .map_err(|e| e.to_string())?;
 
@@ -934,9 +987,11 @@ pub async fn save_images(
                 .send(ProgressEvent {
                     current: i,
                     total,
-                    percent: ((i as f64 / total as f64) * 100.0) as u32,
+                    percent: if total_bytes > 0 { ((downloaded_bytes as f64 / total_bytes as f64) * 100.0) as u32 } else { ((i as f64 / total as f64) * 100.0) as u32 },
                     key: key.clone(),
                     status: "compressing".into(),
+                    downloaded_bytes,
+                    total_bytes,
                 })
                 .map_err(|e| e.to_string())?;
 
@@ -961,9 +1016,11 @@ pub async fn save_images(
             .send(ProgressEvent {
                 current: i,
                 total,
-                percent: ((i as f64 / total as f64) * 100.0) as u32,
+                percent: if total_bytes > 0 { ((downloaded_bytes as f64 / total_bytes as f64) * 100.0) as u32 } else { ((i as f64 / total as f64) * 100.0) as u32 },
                 key: key.clone(),
                 status: "bookmark".into(),
+                downloaded_bytes,
+                total_bytes,
             })
             .map_err(|e| e.to_string())?;
 
@@ -977,9 +1034,11 @@ pub async fn save_images(
             .send(ProgressEvent {
                 current: i + 1,
                 total,
-                percent: (((i + 1) as f64 / total as f64) * 100.0) as u32,
+                percent: if total_bytes > 0 { ((downloaded_bytes as f64 / total_bytes as f64) * 100.0) as u32 } else { ((i + 1) as f64 / total as f64 * 100.0) as u32 },
                 key: key.clone(),
                 status: "done".into(),
+                downloaded_bytes,
+                total_bytes,
             })
             .map_err(|e| e.to_string())?;
 
