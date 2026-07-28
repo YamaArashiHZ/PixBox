@@ -36,6 +36,9 @@ struct TokenResponse {
 pub struct TokenData {
     pub refresh_token: String,
     pub user: PixivUser,
+    /// Web Discovery 用的 PHPSESSID（HttpOnly cookie，登录时从 Webview 抓取）
+    #[serde(default)]
+    pub phpsessid: Option<String>,
 }
 
 pub struct AppState {
@@ -192,9 +195,11 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
         }
     };
 
-    window_handle.close().ok();
-
     eprintln!("[OAuth] exchanging token for code: {}", &code[..code.len().min(8)]);
+
+    // 登录成功后跳转 www.pixiv.net，建立/读取 Web 会话 cookie（Discovery 需要）
+    let phpsessid = capture_phpsessid_from_window(&window_handle).await;
+    window_handle.close().ok();
 
     let token = {
         let client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
@@ -203,16 +208,128 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     };
 
     eprintln!("[OAuth] token received, user: {}", token.user.name);
+    if phpsessid.is_some() {
+        eprintln!("[OAuth] PHPSESSID captured");
+    } else {
+        eprintln!("[OAuth] PHPSESSID missing — Web Discovery may require re-login");
+    }
 
     let token_data = TokenData {
         refresh_token: token.refresh_token.clone(),
         user: token.user.clone(),
+        phpsessid,
     };
     save_token_data(&app, &token_data)?;
 
     *state.access_token.lock().unwrap() = Some(token.access_token);
 
     Ok(token.user)
+}
+
+/// 从 OAuth Webview 的 cookie jar 读取 www.pixiv.net 的 PHPSESSID
+async fn capture_phpsessid_from_window(window: &tauri::WebviewWindow) -> Option<String> {
+    let home = url::Url::parse("https://www.pixiv.net/").ok()?;
+    let discovery = url::Url::parse("https://www.pixiv.net/discovery").ok()?;
+    let cookie_url = url::Url::parse("https://www.pixiv.net").ok()?;
+
+    let _ = window.navigate(home);
+    for attempt in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+        if attempt == 12 {
+            let _ = window.navigate(discovery.clone());
+        }
+        let win = window.clone();
+        let url = cookie_url.clone();
+        let cookies = match tokio::task::spawn_blocking(move || win.cookies_for_url(url)).await {
+            Ok(Ok(c)) => c,
+            _ => continue,
+        };
+        for c in cookies {
+            if c.name() == "PHPSESSID" {
+                let v = c.value().to_string();
+                // 有效会话通常为 "{userId}_{token}"
+                if v.contains('_') && v.len() > 10 {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn load_phpsessid(app: &AppHandle) -> Option<String> {
+    load_token_data(app)?.phpsessid.filter(|s| !s.is_empty())
+}
+
+fn save_phpsessid(app: &AppHandle, phpsessid: String) -> Result<(), String> {
+    let mut data = load_token_data(app).ok_or("未登录")?;
+    data.phpsessid = Some(phpsessid);
+    save_token_data(app, &data)
+}
+
+/// 已有 OAuth 登录但缺少 PHPSESSID 时，用隐藏 Webview 尝试从持久化 cookie 配置恢复
+async fn bootstrap_phpsessid(app: &AppHandle) -> Result<String, String> {
+    if let Some(s) = load_phpsessid(app) {
+        return Ok(s);
+    }
+
+    if let Some(existing) = app.get_webview_window("web-session") {
+        existing.close().ok();
+    }
+    let url: url::Url = "https://www.pixiv.net/discovery"
+        .parse()
+        .map_err(|e: url::ParseError| e.to_string())?;
+    let window = WebviewWindowBuilder::new(app, "web-session", WebviewUrl::External(url))
+        .title("Pixiv Web Session")
+        .inner_size(400.0, 300.0)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("创建 Web 会话窗口失败: {e}"))?;
+
+    let sid = capture_phpsessid_from_window(&window).await;
+    window.close().ok();
+
+    match sid {
+        Some(s) => {
+            save_phpsessid(app, s.clone())?;
+            Ok(s)
+        }
+        None => Err(
+            "无法获取网页登录态（PHPSESSID）。请退出后重新登录，以便启用与网页端一致的推荐流。"
+                .into(),
+        ),
+    }
+}
+
+fn create_web_ajax_client(proxy: Option<&str>, phpsessid: &str) -> Result<Client, String> {
+    use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER, USER_AGENT};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        ),
+    );
+    headers.insert(REFERER, HeaderValue::from_static("https://www.pixiv.net/"));
+    headers.insert(
+        COOKIE,
+        HeaderValue::from_str(&format!("PHPSESSID={phpsessid}"))
+            .map_err(|e| format!("Invalid PHPSESSID: {e}"))?,
+    );
+
+    let mut builder = Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .default_headers(headers);
+
+    if let Some(p) = proxy {
+        if !p.is_empty() {
+            let pxy = reqwest::Proxy::all(p).map_err(|e| e.to_string())?;
+            builder = builder.proxy(pxy);
+        }
+    }
+
+    builder.build().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -384,6 +501,7 @@ async fn get_or_refresh_token(app: &AppHandle, state: &AppState) -> Result<Strin
             let new_data = TokenData {
                 refresh_token: token_resp.refresh_token.clone(),
                 user: token_resp.user.clone(),
+                phpsessid: token_data.phpsessid.clone(),
             };
             save_token_data(app, &new_data)?;
             let token = token_resp.access_token.clone();
@@ -413,6 +531,306 @@ async fn download_thumbnail(
     }
 }
 
+fn de_id_string_or_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct IdVisitor;
+    impl<'de> Visitor<'de> for IdVisitor {
+        type Value = u64;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("string or integer id")
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u64, E> {
+            Ok(v)
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u64, E> {
+            if v < 0 {
+                return Err(E::custom("negative id"));
+            }
+            Ok(v as u64)
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<u64, E> {
+            v.parse().map_err(E::custom)
+        }
+    }
+    deserializer.deserialize_any(IdVisitor)
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryAjaxResponse {
+    error: bool,
+    #[serde(default)]
+    message: String,
+    body: Option<DiscoveryBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryBody {
+    thumbnails: DiscoveryThumbnails,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryThumbnails {
+    #[serde(default)]
+    illust: Vec<DiscoveryIllust>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryIllust {
+    #[serde(deserialize_with = "de_id_string_or_u64")]
+    id: u64,
+    title: String,
+    #[serde(rename = "userName", default)]
+    user_name: String,
+    #[serde(rename = "xRestrict", default)]
+    x_restrict: u32,
+    #[serde(rename = "pageCount", default)]
+    page_count: u32,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(rename = "bookmarkData")]
+    bookmark_data: Option<serde_json::Value>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(rename = "aiType")]
+    ai_type: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IllustDetailResponse {
+    illust: PixivIllust,
+}
+
+async fn fetch_illust_detail(client: &Client, token: &str, id: u64) -> Result<PixivIllust, String> {
+    let url = format!("https://app-api.pixiv.net/v1/illust/detail?illust_id={id}");
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("illust detail request failed: {e}"))?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("illust detail read: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("illust detail {}: {}", status, text));
+    }
+    let parsed: IllustDetailResponse =
+        serde_json::from_str(&text).map_err(|e| format!("illust detail parse: {e}"))?;
+    Ok(parsed.illust)
+}
+
+fn discovery_ai_type(illust: &DiscoveryIllust) -> u32 {
+    if let Some(t) = illust.ai_type {
+        if t >= 2 {
+            return 2;
+        }
+    }
+    if illust.tags.iter().any(|t| {
+        let lower = t.to_lowercase();
+        lower == "ai生成" || lower == "ai-generated" || t == "AI生成"
+    }) {
+        2
+    } else {
+        0
+    }
+}
+
+/// 从 Discovery 缩略图 URL 推导 large / original（detail 失败时的兜底）
+fn urls_from_discovery_thumb(thumb: &str, page: u32) -> (String, String) {
+    // .../img-master/img/YYYY/MM/DD/hh/mm/ss/{id}_p0_square1200.jpg
+    // -> img-master ... _pN_master1200.jpg
+    // -> img-original ... _pN.jpg
+    if let Some(idx) = thumb.find("/img-master/img/") {
+        let rest = &thumb[idx + "/img-master/img/".len()..];
+        if let Some(fname) = rest.rsplit('/').next() {
+            let id_part = fname
+                .split("_p")
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let date_path = rest.trim_end_matches(fname).trim_end_matches('/');
+            if !id_part.is_empty() && !date_path.is_empty() {
+                let large = format!(
+                    "https://i.pximg.net/img-master/img/{date_path}/{id_part}_p{page}_master1200.jpg"
+                );
+                let original = format!(
+                    "https://i.pximg.net/img-original/img/{date_path}/{id_part}_p{page}.jpg"
+                );
+                return (large, original);
+            }
+        }
+    }
+    (thumb.to_string(), thumb.to_string())
+}
+
+async fn fetch_discovery_feed(
+    app: &AppHandle,
+    state: &AppState,
+    content_mode: Option<String>,
+) -> Result<FeedPage, String> {
+    let token = get_or_refresh_token(app, state).await?;
+    let proxy = crate::load_proxy_setting(app);
+    let api_client = state
+        .client
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("HTTP 客户端未初始化")?;
+
+    let mode = match content_mode.as_deref() {
+        Some("safe") => "safe",
+        Some("r18") => "r18",
+        _ => "all",
+    };
+
+    let phpsessid = bootstrap_phpsessid(app).await?;
+    let web_client = create_web_ajax_client(proxy.as_deref(), &phpsessid)?;
+    let url = format!(
+        "https://www.pixiv.net/ajax/discovery/artworks?mode={mode}&limit=60"
+    );
+
+    let resp = web_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Discovery request failed: {e}"))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("Discovery response read: {e}"))?;
+
+    if !status.is_success() {
+        // cookie 失效时清掉并提示重登
+        if status.as_u16() == 401 || status.as_u16() == 403 || text.contains("login") {
+            if let Some(mut data) = load_token_data(app) {
+                data.phpsessid = None;
+                let _ = save_token_data(app, &data);
+            }
+            return Err("网页登录态已失效，请重新登录以使用推荐流".into());
+        }
+        return Err(format!("Discovery returned {}: {}", status, &text[..text.len().min(300)]));
+    }
+
+    let parsed: DiscoveryAjaxResponse =
+        serde_json::from_str(&text).map_err(|e| format!("Discovery parse error: {e}"))?;
+    if parsed.error {
+        return Err(format!("Discovery error: {}", parsed.message));
+    }
+    let thumbs = parsed
+        .body
+        .map(|b| b.thumbnails.illust)
+        .unwrap_or_default();
+
+    // 并发用 App API 拉详情（原图 / 多页 / AI / 收藏状态）
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(6));
+    let mut handles = Vec::new();
+    for d in &thumbs {
+        let client = api_client.clone();
+        let token = token.clone();
+        let id = d.id;
+        let disc = DiscoveryIllust {
+            id: d.id,
+            title: d.title.clone(),
+            user_name: d.user_name.clone(),
+            x_restrict: d.x_restrict,
+            page_count: d.page_count,
+            width: d.width,
+            height: d.height,
+            url: d.url.clone(),
+            bookmark_data: d.bookmark_data.clone(),
+            tags: d.tags.clone(),
+            ai_type: d.ai_type,
+        };
+        let sem = semaphore.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire().await.ok();
+            let detail = fetch_illust_detail(&client, &token, id).await.ok();
+            (disc, detail)
+        }));
+    }
+
+    let mut items = Vec::new();
+    let mut thumb_tasks: Vec<(String, String)> = Vec::new();
+
+    for h in handles {
+        let (disc, detail) = match h.await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if let Some(illust) = detail {
+            let expanded = expand_illust(&illust);
+            for (page, thumb_url, large_url, original_url) in expanded {
+                let key = format!("{}_p{}", illust.id, page);
+                thumb_tasks.push((key.clone(), thumb_url));
+                items.push(FeedItem {
+                    key,
+                    illust_id: illust.id,
+                    page,
+                    page_count: illust.page_count,
+                    thumb_b64: String::new(),
+                    large_url,
+                    original_url,
+                    title: illust.title.clone(),
+                    artist: illust.user.name.clone(),
+                    is_bookmarked: illust.is_bookmarked,
+                    width: illust.width,
+                    height: illust.height,
+                    x_restrict: illust.x_restrict.unwrap_or(0),
+                    illust_ai_type: illust.illust_ai_type.unwrap_or(0),
+                });
+            }
+        } else {
+            // detail 失败：用 Discovery 摘要 + URL 推导（仅封面页）
+            let thumb = disc.url.clone().unwrap_or_default();
+            let (large, original) = urls_from_discovery_thumb(&thumb, 0);
+            let key = format!("{}_p0", disc.id);
+            let ai = discovery_ai_type(&disc);
+            let bookmarked = disc.bookmark_data.is_some();
+            thumb_tasks.push((key.clone(), thumb));
+            items.push(FeedItem {
+                key,
+                illust_id: disc.id,
+                page: 0,
+                page_count: disc.page_count.max(1),
+                thumb_b64: String::new(),
+                large_url: large,
+                original_url: original,
+                title: disc.title,
+                artist: disc.user_name,
+                is_bookmarked: bookmarked,
+                width: disc.width,
+                height: disc.height,
+                x_restrict: disc.x_restrict,
+                illust_ai_type: ai,
+            });
+        }
+    }
+
+    let result = FeedPage {
+        items,
+        // Discovery 无稳定 next_url；用哨兵标记可继续请求新一批
+        next_url: Some(format!("discovery:{mode}")),
+    };
+
+    let img_client = http::create_client_with_referer(proxy.as_deref())?;
+    let emit_app = app.clone();
+    tokio::spawn(async move {
+        let _ = download_thumbnails_bg(img_client, thumb_tasks, emit_app).await;
+    });
+
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn fetch_feed(
     app: AppHandle,
@@ -421,6 +839,25 @@ pub async fn fetch_feed(
     next_url: Option<String>,
     content_mode: Option<String>,
 ) -> Result<FeedPage, String> {
+    let is_discovery = kind == "recommended"
+        || next_url
+            .as_deref()
+            .map(|u| u.starts_with("discovery:"))
+            .unwrap_or(false);
+
+    if is_discovery {
+        let mode = if let Some(u) = next_url.as_deref() {
+            if let Some(m) = u.strip_prefix("discovery:") {
+                Some(m.to_string())
+            } else {
+                content_mode
+            }
+        } else {
+            content_mode
+        };
+        return fetch_discovery_feed(&app, &state, mode).await;
+    }
+
     let token = get_or_refresh_token(&app, &state).await?;
     let proxy = crate::load_proxy_setting(&app);
     let api_client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
@@ -429,15 +866,10 @@ pub async fn fetch_feed(
 
     let url = next_url.unwrap_or_else(|| {
         let base = match kind.as_str() {
-            "recommended" => "https://app-api.pixiv.net/v1/illust/recommended".to_string(),
             "ranking" => "https://app-api.pixiv.net/v1/illust/ranking?mode=day_r18".to_string(),
             _ => "https://app-api.pixiv.net/v2/illust/follow?restrict=public".to_string(),
         };
-        if kind == "recommended" && content_mode.as_deref() == Some("safe") {
-            format!("{}?filter=for_ios", base)
-        } else {
-            base
-        }
+        base
     });
 
     let resp = api_client
@@ -447,11 +879,8 @@ pub async fn fetch_feed(
         .await
         .map_err(|e| format!("API request failed: {e}"))?;
 
-        let status = resp.status();
+    let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Response read: {e}"))?;
-
-
-
 
     if !status.is_success() {
         return Err(format!("API returned {}: {}", status, text));
@@ -463,9 +892,6 @@ pub async fn fetch_feed(
     let mut items = Vec::new();
     let mut thumb_tasks: Vec<(String, String)> = Vec::new();
     for illust in &feed.illusts {
-        if content_mode.as_deref() == Some("r18") && illust.x_restrict.unwrap_or(0) == 0 {
-            continue;
-        }
         let expanded = expand_illust(illust);
         let artist = illust.user.name.clone();
         let title = illust.title.clone();

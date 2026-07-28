@@ -169,45 +169,29 @@ export const useFeedStore = defineStore('feed', () => {
     loading.value = true
     refreshing.value = true
     try {
-      if (k === 'recommended' && contentMode.value === 'all') {
-        const [recPage, rankPage] = await Promise.all([
-          fetchFeed('recommended', undefined, 'all'),
-          fetchFeed('ranking', undefined, undefined),
-        ])
-        const recIds = new Set(recPage.items.map((i) => i.illust_id))
-        const extraRank = rankPage.items.filter((i) => !recIds.has(i.illust_id))
-        allItems.value = mergeThumbnails([...recPage.items, ...extraRank])
-        nextUrl.value = recPage.next_url
-      } else if (k === 'recommended' && contentMode.value === 'r18') {
-        const [recPage, rankPage] = await Promise.all([
-          fetchFeed('recommended', undefined, 'r18'),
-          fetchFeed('ranking', undefined, undefined),
-        ])
-        const recIds = new Set(recPage.items.map((i) => i.illust_id))
-        const extraRank = rankPage.items.filter((i) => !recIds.has(i.illust_id))
-        allItems.value = mergeThumbnails([...recPage.items, ...extraRank])
-        nextUrl.value = recPage.next_url
+      if (k === 'recommended') {
+        // Web Discovery（与 www.pixiv.net/discovery 同源）
+        const page = await fetchFeed('recommended', undefined, contentMode.value)
+        allItems.value = mergeThumbnails(page.items)
+        nextUrl.value = page.next_url
       } else {
-        const apiKind = k === 'recommended' ? 'recommended' : 'following'
-        const freshPromise = fetchFeed(apiKind, undefined, apiKind === 'recommended' ? contentMode.value : undefined)
-        if (apiKind === 'following') {
-          try {
-            const cached = await loadCachedFeed(apiKind)
-            let items = mergeThumbnails(cached.items)
-            if (oldBookmarks.size > 0) {
-              items = items.map((item) => {
-                const bm = oldBookmarks.get(item.illust_id)
-                if (bm !== undefined && bm !== item.is_bookmarked) {
-                  return { ...item, is_bookmarked: bm }
-                }
-                return item
-              })
-            }
-            allItems.value = items
-            nextUrl.value = cached.next_url
-          } catch {
-            // No cache yet; skeleton cards remain until fresh metadata arrives.
+        const freshPromise = fetchFeed('following', undefined, undefined)
+        try {
+          const cached = await loadCachedFeed('following')
+          let items = mergeThumbnails(cached.items)
+          if (oldBookmarks.size > 0) {
+            items = items.map((item) => {
+              const bm = oldBookmarks.get(item.illust_id)
+              if (bm !== undefined && bm !== item.is_bookmarked) {
+                return { ...item, is_bookmarked: bm }
+              }
+              return item
+            })
           }
+          allItems.value = items
+          nextUrl.value = cached.next_url
+        } catch {
+          // No cache yet; skeleton cards remain until fresh metadata arrives.
         }
         const page = await freshPromise
         allItems.value = mergeThumbnails(page.items)
@@ -225,13 +209,17 @@ export const useFeedStore = defineStore('feed', () => {
     if (loading.value || !nextUrl.value) return
     loading.value = true
     try {
-      let page: FeedPage
-        if (kind.value === 'recommended' && contentMode.value === 'r18') {
-          page = await fetchFeed('recommended', nextUrl.value, 'r18')
-      } else {
-        page = await fetchFeed(kind.value, nextUrl.value, kind.value === 'recommended' ? contentMode.value : undefined)
+      const page = await fetchFeed(
+        kind.value,
+        nextUrl.value,
+        kind.value === 'recommended' ? contentMode.value : undefined,
+      )
+      // Discovery 每批可能与已有重复，按 key 去重
+      const existing = new Set(allItems.value.map((i) => i.key))
+      const fresh = page.items.filter((i) => !existing.has(i.key))
+      if (fresh.length > 0) {
+        allItems.value.push(...mergeThumbnails(fresh))
       }
-      allItems.value.push(...mergeThumbnails(page.items))
       nextUrl.value = page.next_url
     } catch (e) {
       error.value = String(e)
