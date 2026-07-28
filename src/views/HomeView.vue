@@ -100,6 +100,7 @@ watch(() => feed.kind, (k) => { if (k === 'recommended') updateIndicator(); });
 function setContentMode(mode: string) {
   feed.contentMode = mode;
   feed.load("recommended");
+  scrollTo(0);
 }
 
 onMounted(() => {
@@ -126,6 +127,7 @@ watch(
 
 function handleFeedChange(kind: string) {
   feed.load(kind as FeedKind);
+  scrollTo(0);
 }
 
 // 多图展开组：按相邻 illust_id 判定分组位置，用于描边画框样式
