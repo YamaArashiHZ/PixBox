@@ -398,6 +398,14 @@ async function handleSave() {
       message.success(`成功保存 ${report.success} 张`);
     }
 
+    const failedKeys = new Set(report.errors.map((e) => e.split(":")[0]));
+    const bookmarked = new Set<number>();
+    for (const item of items) {
+      if (!failedKeys.has(item.key)) {
+        bookmarked.add(item.illust_id);
+      }
+    }
+    feed.markBookmarked(bookmarked);
     feed.clearSelection();
   } catch (e) {
     message.error(String(e));

@@ -219,6 +219,15 @@ export const useFeedStore = defineStore('feed', () => {
     }
   }
 
+  function markBookmarked(illustIds: Set<number>) {
+    if (illustIds.size === 0) return
+    allItems.value = allItems.value.map((item) =>
+      illustIds.has(item.illust_id)
+        ? { ...item, is_bookmarked: true }
+        : item
+    )
+  }
+
   return {
     items,
     kind,
@@ -241,6 +250,7 @@ export const useFeedStore = defineStore('feed', () => {
     clearItems,
     startThumbListener,
     doToggleBookmark,
+    markBookmarked,
     load,
     loadMore,
   }

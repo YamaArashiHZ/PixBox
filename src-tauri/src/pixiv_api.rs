@@ -723,11 +723,19 @@ struct Settings {
     #[serde(default)]
     save_dir: String,
     #[serde(default)]
+    use_subdir: bool,
+    #[serde(default = "default_subdir_pattern")]
+    subdir_pattern: String,
+    #[serde(default)]
     compress_enabled: bool,
     #[serde(default)]
     compress_separate: bool,
     #[serde(default)]
     compress_dir: String,
+    #[serde(default)]
+    compress_use_subdir: bool,
+    #[serde(default = "default_subdir_pattern")]
+    compress_subdir_pattern: String,
     #[serde(default = "default_max_mb")]
     compress_max_mb: f64,
     #[serde(default = "default_image_cache_limit_mb")]
@@ -742,6 +750,9 @@ fn default_max_mb() -> f64 {
 }
 fn default_image_cache_limit_mb() -> Option<f64> {
     Some(200.0)
+}
+fn default_subdir_pattern() -> String {
+    "%yy_%mm%dd_%HH%MM".into()
 }
 
 fn load_settings(app: &AppHandle) -> Settings {
@@ -762,9 +773,13 @@ fn load_settings(app: &AppHandle) -> Settings {
         proxy_enabled: true,
         proxy: default_proxy(),
         save_dir: String::new(),
+        use_subdir: true,
+        subdir_pattern: default_subdir_pattern(),
         compress_enabled: true,
         compress_separate: true,
         compress_dir: String::new(),
+        compress_use_subdir: true,
+        compress_subdir_pattern: default_subdir_pattern(),
         compress_max_mb: default_max_mb(),
         image_cache_limit_mb: default_image_cache_limit_mb(),
     }
@@ -864,6 +879,54 @@ pub async fn toggle_bookmark(
     Ok(())
 }
 
+fn build_subdir(pattern: &str) -> String {
+    use chrono::{Datelike, Timelike};
+    let now = chrono::Local::now();
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut result = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '%' && i + 1 < chars.len() {
+            let c = chars[i + 1];
+            // 统计同一字母的连续重复次数
+            let mut len = 1;
+            while i + 1 + len < chars.len() && chars[i + 1 + len] == c {
+                len += 1;
+            }
+            let token = match (c, len) {
+                ('y', 2) => Some(format!("{:02}", now.year() % 100)),
+                ('y', 4) => Some(format!("{:04}", now.year())),
+                ('m', 1) => Some(format!("{}", now.month())),
+                ('m', 2) => Some(format!("{:02}", now.month())),
+                ('d', 1) => Some(format!("{}", now.day())),
+                ('d', 2) => Some(format!("{:02}", now.day())),
+                ('H', 1) => Some(format!("{}", now.hour())),
+                ('H', 2) => Some(format!("{:02}", now.hour())),
+                ('M', 1) => Some(format!("{}", now.minute())),
+                ('M', 2) => Some(format!("{:02}", now.minute())),
+                ('S', 1) => Some(format!("{}", now.second())),
+                ('S', 2) => Some(format!("{:02}", now.second())),
+                _ => None,
+            };
+            if let Some(rep) = token {
+                result.push_str(&rep);
+                i += 1 + len;
+            } else {
+                // 未识别的占位符，原样输出
+                result.push('%');
+                i += 1;
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+    result
+        .replace('/', "_")
+        .replace('\\', "_")
+        .replace("..", "_")
+}
+
 #[tauri::command]
 pub async fn save_images(
     app: AppHandle,
@@ -882,7 +945,17 @@ pub async fn save_images(
         if settings.proxy_enabled { Some(&settings.proxy) } else { None }
     )?;
 
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let save_subdir = if settings.use_subdir && !settings.subdir_pattern.is_empty() {
+        Some(build_subdir(&settings.subdir_pattern))
+    } else {
+        None
+    };
+
+    let compress_subdir = if settings.compress_use_subdir && !settings.compress_subdir_pattern.is_empty() {
+        Some(build_subdir(&settings.compress_subdir_pattern))
+    } else {
+        None
+    };
     let total = items.len();
     let mut success = 0;
     let mut errors: Vec<String> = Vec::new();
@@ -974,7 +1047,11 @@ pub async fn save_images(
             })
             .map_err(|e| e.to_string())?;
 
-        let save_dir = std::path::Path::new(&settings.save_dir).join(&today);
+        let mut save_path_buf = std::path::Path::new(&settings.save_dir).to_path_buf();
+        if let Some(ref subdir) = save_subdir {
+            save_path_buf.push(subdir);
+        }
+        let save_dir = &save_path_buf;
         std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
         let save_path = save_dir.join(format!("{}.{}", key, ext));
         if let Err(e) = std::fs::write(&save_path, &data) {
@@ -997,9 +1074,13 @@ pub async fn save_images(
 
             let compressed = compress::compress(&data, settings.compress_max_mb);
             let compress_dir = if settings.compress_separate {
-                std::path::Path::new(&settings.compress_dir).join(&today)
+                let mut path_buf = std::path::Path::new(&settings.compress_dir).to_path_buf();
+                if let Some(ref subdir) = compress_subdir {
+                    path_buf.push(subdir);
+                }
+                path_buf
             } else {
-                save_dir.clone()
+                save_path_buf.clone()
             };
             if let Err(e) = std::fs::create_dir_all(&compress_dir) {
                 errors.push(format!("{key}: {e}"));

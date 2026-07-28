@@ -86,9 +86,13 @@ fn get_settings(app: AppHandle) -> String {
         "proxy_enabled": true,
         "proxy": "http://127.0.0.1:7897",
         "save_dir": "",
+        "use_subdir": true,
+        "subdir_pattern": "%yy_%mm%dd_%HH%MM",
         "compress_enabled": true,
         "compress_separate": true,
         "compress_dir": "",
+        "compress_use_subdir": true,
+        "compress_subdir_pattern": "%yy_%mm%dd_%HH%MM",
         "compress_max_mb": 6,
         "image_cache_limit_mb": 200,
         "user": null

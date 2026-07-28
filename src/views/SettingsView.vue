@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import {
   NCard,
   NSpace,
@@ -8,6 +8,8 @@ import {
   NInputNumber,
   NSelect,
   NSwitch,
+  NRadioGroup,
+  NRadioButton,
   NTag,
   NIcon,
   NText,
@@ -19,15 +21,21 @@ import { useAppConfig } from "../composables/useAppConfig";
 import { useAuthStore } from "../stores/auth";
 import { getCacheSize, clearCache, enforceCacheLimit } from "../api";
 import { invoke } from "@tauri-apps/api/core";
+import SubdirPatternField from "../components/SubdirPatternField.vue";
+import { buildPathPreview } from "../utils/subdir";
 
 const message = useMessage();
 const {
   proxy_enabled,
   proxy,
   save_dir,
+  use_subdir,
+  subdir_pattern,
   compress_enabled,
   compress_separate,
   compress_dir,
+  compress_use_subdir,
+  compress_subdir_pattern,
   compress_max_mb,
   image_cache_limit_mb,
 } = useAppConfig();
@@ -46,6 +54,27 @@ const limitModeOptions = [
 function onLimitModeChange(v: string) {
   image_cache_limit_mb.value = v === "unlimited" ? null : 200;
 }
+
+// compress_separate (boolean) 与单选控件 (string) 的桥接
+const compressLocation = computed({
+  get: () => (compress_separate.value ? "separate" : "same"),
+  set: (v: string) => { compress_separate.value = v === "separate"; },
+});
+
+// 最终落盘路径实时预览（逻辑与后端 build_subdir 一致）
+const savePreview = computed(() =>
+  buildPathPreview(save_dir.value, use_subdir.value, subdir_pattern.value, "12345678_p0.jpg")
+);
+const compressPreview = computed(() => {
+  if (!compress_enabled.value) return null;
+  if (!compress_separate.value) return savePreview.value; // 与原图同目录
+  return buildPathPreview(
+    compress_dir.value,
+    compress_use_subdir.value,
+    compress_subdir_pattern.value,
+    "12345678_p0.jpg"
+  );
+});
 
 // 上限变化后立即执行一次 LRU 清理
 watch(image_cache_limit_mb, () => { void enforceCacheLimit(); });
@@ -121,10 +150,10 @@ onMounted(() => { loadCacheSize(); })
         </Transition>
       </n-card>
 
-      <n-card title="保存" size="small">
+      <n-card title="原图保存" size="small">
         <n-space vertical :size="14" style="width: 100%">
           <div class="setting-row">
-            <n-text depth="3" class="label">原图保存路径</n-text>
+            <n-text depth="3" class="label">保存路径</n-text>
             <div class="input-row">
               <n-input :value="save_dir" placeholder="选择原图保存目录..." readonly />
               <n-button secondary @click="chooseDir('save_dir')">
@@ -134,17 +163,57 @@ onMounted(() => { loadCacheSize(); })
           </div>
 
           <div class="setting-row toggle-row">
-            <n-text depth="3">启用压缩保存</n-text>
-            <n-switch v-model:value="compress_enabled" />
-          </div>
-
-          <div class="setting-row toggle-row">
-            <n-text depth="3">压缩独立保存</n-text>
-            <n-switch v-model:value="compress_separate" />
+            <n-text depth="3">每次保存在独立文件夹中</n-text>
+            <n-switch v-model:value="use_subdir" />
           </div>
 
           <Transition name="collapse">
-            <div v-if="compress_enabled" class="collapsible-section">
+            <div v-if="use_subdir" class="collapsible-section indent-section">
+              <SubdirPatternField v-model="subdir_pattern" label="独立文件夹命名" />
+            </div>
+          </Transition>
+
+          <n-text v-if="savePreview" depth="3" class="path-preview">
+            预览：{{ savePreview }}
+          </n-text>
+        </n-space>
+      </n-card>
+
+      <n-card size="small">
+        <template #header>压缩保存</template>
+        <template #header-extra>
+          <n-switch v-model:value="compress_enabled" />
+        </template>
+
+        <n-text v-if="!compress_enabled" depth="3" style="font-size: 13px">
+          未启用压缩，仅保存原图
+        </n-text>
+
+        <n-space v-else vertical :size="14" style="width: 100%">
+          <div class="setting-row">
+            <n-text depth="3" class="label">压缩最大大小</n-text>
+            <div class="input-row">
+              <n-input-number
+                v-model:value="compress_max_mb"
+                :min="1"
+                :max="50"
+                style="width: 140px"
+              >
+                <template #suffix>MB</template>
+              </n-input-number>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <n-text depth="3" class="label">压缩图保存位置</n-text>
+            <n-radio-group v-model:value="compressLocation">
+              <n-radio-button value="same">与原图同目录</n-radio-button>
+              <n-radio-button value="separate">独立目录</n-radio-button>
+            </n-radio-group>
+          </div>
+
+          <Transition name="collapse">
+            <div v-if="compress_separate" class="collapsible-section indent-section">
               <div class="setting-row">
                 <n-text depth="3" class="label">压缩保存路径</n-text>
                 <div class="input-row">
@@ -155,17 +224,22 @@ onMounted(() => { loadCacheSize(); })
                 </div>
               </div>
 
-              <div class="setting-row">
-                <n-text depth="3" class="label">压缩最大大小 (MB)</n-text>
-                <n-input-number
-                  v-model:value="compress_max_mb"
-                  :min="1"
-                  :max="50"
-                  style="width: 120px"
-                />
+              <div class="setting-row toggle-row">
+                <n-text depth="3">每次保存在独立文件夹中</n-text>
+                <n-switch v-model:value="compress_use_subdir" />
               </div>
+
+              <Transition name="collapse">
+                <div v-if="compress_use_subdir" class="collapsible-section indent-section">
+                  <SubdirPatternField v-model="compress_subdir_pattern" label="独立文件夹命名" />
+                </div>
+              </Transition>
             </div>
           </Transition>
+
+          <n-text v-if="compressPreview" depth="3" class="path-preview">
+            预览：{{ compressPreview }}
+          </n-text>
         </n-space>
       </n-card>
 
@@ -263,6 +337,18 @@ onMounted(() => { loadCacheSize(); })
   gap: 14px;
 }
 
+.indent-section {
+  margin-left: 2px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(128, 128, 128, 0.3);
+}
+
+.path-preview {
+  font-size: 11px;
+  font-family: Consolas, "Courier New", monospace;
+  word-break: break-all;
+}
+
 .collapse-enter-active,
 .collapse-leave-active {
   transition:
@@ -281,7 +367,7 @@ onMounted(() => { loadCacheSize(); })
 
 .collapse-enter-to,
 .collapse-leave-from {
-  max-height: 300px;
+  max-height: 500px;
   opacity: 1;
 }
 </style>
