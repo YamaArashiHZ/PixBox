@@ -425,6 +425,7 @@ pub async fn fetch_feed(
     let url = next_url.unwrap_or_else(|| {
         let base = match kind.as_str() {
             "recommended" => "https://app-api.pixiv.net/v1/illust/recommended".to_string(),
+            "ranking" => "https://app-api.pixiv.net/v1/illust/ranking?mode=day_r18".to_string(),
             _ => "https://app-api.pixiv.net/v2/illust/follow?restrict=public".to_string(),
         };
         if kind == "recommended" && content_mode.as_deref() == Some("safe") {

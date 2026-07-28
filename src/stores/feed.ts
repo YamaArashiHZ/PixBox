@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchFeed, loadCachedFeed, toggleBookmark, type FeedItem, type ThumbProgress } from '../api'
+import { fetchFeed, loadCachedFeed, toggleBookmark, type FeedItem, type FeedPage, type ThumbProgress } from '../api'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export type FeedKind = 'following' | 'recommended'
@@ -17,6 +17,7 @@ export const useFeedStore = defineStore('feed', () => {
   const refreshing = ref(false)
   const error = ref<string | null>(null)
   const selectedKeys = ref<Set<string>>(new Set())
+  const selectedItemsList = ref<FeedItem[]>([])
   const expandedIds = ref<Set<number>>(new Set())
   const contentMode = ref('all')
   const pendingThumbs = new Map<string, string>()
@@ -72,17 +73,30 @@ export const useFeedStore = defineStore('feed', () => {
 
   const isEmpty = computed(() => items.value.length === 0 && !loading.value)
 
-  // 已选条目基于全量数据：收起多图帖后，各页选中记录仍保留在托盘中
-  const selectedItems = computed<FeedItem[]>(() =>
-    allItems.value.filter((i) => selectedKeys.value.has(i.key)),
-  )
+  function addToSelectedList(items: FeedItem[]) {
+    const existing = new Set(selectedItemsList.value.map((i) => i.key))
+    const toAdd = items.filter((i) => !existing.has(i.key))
+    if (toAdd.length > 0) {
+      selectedItemsList.value = [...selectedItemsList.value, ...toAdd]
+    }
+  }
+
+  function removeFromSelectedList(keys: string[]) {
+    const keySet = new Set(keys)
+    if (selectedItemsList.value.some((i) => keySet.has(i.key))) {
+      selectedItemsList.value = selectedItemsList.value.filter((i) => !keySet.has(i.key))
+    }
+  }
 
   function toggleSelect(key: string) {
     const s = new Set(selectedKeys.value)
     if (s.has(key)) {
       s.delete(key)
+      removeFromSelectedList([key])
     } else {
       s.add(key)
+      const item = allItems.value.find((i) => i.key === key)
+      if (item) addToSelectedList([item])
     }
     selectedKeys.value = s
   }
@@ -114,14 +128,18 @@ export const useFeedStore = defineStore('feed', () => {
     const s = new Set(selectedKeys.value)
     if (keys.length > 0 && keys.every((k) => s.has(k))) {
       keys.forEach((k) => s.delete(k))
+      removeFromSelectedList(keys)
     } else {
       keys.forEach((k) => s.add(k))
+      const items = allItems.value.filter((i) => keys.includes(i.key))
+      addToSelectedList(items)
     }
     selectedKeys.value = s
   }
 
   function clearSelection() {
     selectedKeys.value = new Set()
+    selectedItemsList.value = []
   }
 
   function toggleExpand(illustId: number) {
@@ -151,30 +169,45 @@ export const useFeedStore = defineStore('feed', () => {
     loading.value = true
     refreshing.value = true
     try {
-      const apiKind = k === 'recommended' ? 'recommended' : 'following'
-      const freshPromise = fetchFeed(apiKind, undefined, apiKind === 'recommended' ? contentMode.value : undefined)
-      if (apiKind === 'following') {
-        try {
-          const cached = await loadCachedFeed(apiKind)
-          let items = mergeThumbnails(cached.items)
-          if (oldBookmarks.size > 0) {
-            items = items.map((item) => {
-              const bm = oldBookmarks.get(item.illust_id)
-              if (bm !== undefined && bm !== item.is_bookmarked) {
-                return { ...item, is_bookmarked: bm }
-              }
-              return item
-            })
+      if (k === 'recommended' && contentMode.value === 'all') {
+        const [recPage, rankPage] = await Promise.all([
+          fetchFeed('recommended', undefined, 'all'),
+          fetchFeed('ranking', undefined, undefined),
+        ])
+        const recIds = new Set(recPage.items.map((i) => i.illust_id))
+        const extraRank = rankPage.items.filter((i) => !recIds.has(i.illust_id))
+        allItems.value = mergeThumbnails([...recPage.items, ...extraRank])
+        nextUrl.value = recPage.next_url
+      } else if (k === 'recommended' && contentMode.value === 'r18') {
+        const page = await fetchFeed('ranking', undefined, undefined)
+        allItems.value = mergeThumbnails(page.items)
+        nextUrl.value = page.next_url
+      } else {
+        const apiKind = k === 'recommended' ? 'recommended' : 'following'
+        const freshPromise = fetchFeed(apiKind, undefined, apiKind === 'recommended' ? contentMode.value : undefined)
+        if (apiKind === 'following') {
+          try {
+            const cached = await loadCachedFeed(apiKind)
+            let items = mergeThumbnails(cached.items)
+            if (oldBookmarks.size > 0) {
+              items = items.map((item) => {
+                const bm = oldBookmarks.get(item.illust_id)
+                if (bm !== undefined && bm !== item.is_bookmarked) {
+                  return { ...item, is_bookmarked: bm }
+                }
+                return item
+              })
+            }
+            allItems.value = items
+            nextUrl.value = cached.next_url
+          } catch {
+            // No cache yet; skeleton cards remain until fresh metadata arrives.
           }
-          allItems.value = items
-          nextUrl.value = cached.next_url
-        } catch {
-          // No cache yet; skeleton cards remain until fresh metadata arrives.
         }
+        const page = await freshPromise
+        allItems.value = mergeThumbnails(page.items)
+        nextUrl.value = page.next_url
       }
-      const page = await freshPromise
-      allItems.value = mergeThumbnails(page.items)
-      nextUrl.value = page.next_url
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -187,7 +220,12 @@ export const useFeedStore = defineStore('feed', () => {
     if (loading.value || !nextUrl.value) return
     loading.value = true
     try {
-      const page = await fetchFeed(kind.value, nextUrl.value, kind.value === 'recommended' ? contentMode.value : undefined)
+      let page: FeedPage
+      if (kind.value === 'recommended' && contentMode.value === 'r18') {
+        page = await fetchFeed('ranking', nextUrl.value, undefined)
+      } else {
+        page = await fetchFeed(kind.value, nextUrl.value, kind.value === 'recommended' ? contentMode.value : undefined)
+      }
       allItems.value.push(...mergeThumbnails(page.items))
       nextUrl.value = page.next_url
     } catch (e) {
@@ -237,7 +275,7 @@ export const useFeedStore = defineStore('feed', () => {
     error,
     contentMode,
     selectedKeys,
-    selectedItems,
+    selectedItems: selectedItemsList,
     isEmpty,
     toggleSelect,
     isSelected,
