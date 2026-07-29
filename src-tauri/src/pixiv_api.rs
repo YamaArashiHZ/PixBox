@@ -10,16 +10,10 @@ use tokio::sync::oneshot;
 use crate::http;
 use crate::compress;
 use crate::download;
+use crate::auth_store::{self, PixivUser, AuthSecrets};
 
 pub const CLIENT_ID: &str = "MOBrBDS8blbauoSck0ZfDbtuzpyT";
 pub const CLIENT_SECRET: &str = "lsACyCD94FhDUtGTXi3QzcFE2uU1hqtDaKeqrdwj";
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PixivUser {
-    pub id: String,
-    pub name: String,
-    pub account: String,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TokenResponse {
@@ -30,15 +24,6 @@ struct TokenResponse {
     #[serde(default)]
     token_type: String,
     user: PixivUser,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TokenData {
-    pub refresh_token: String,
-    pub user: PixivUser,
-    /// Web Discovery 用的 PHPSESSID（HttpOnly cookie，登录时从 Webview 抓取）
-    #[serde(default)]
-    pub phpsessid: Option<String>,
 }
 
 pub struct AppState {
@@ -90,14 +75,22 @@ async fn exchange_token(client: &Client, code: &str, verifier: &str) -> Result<T
     let text = resp.text().await.map_err(|e| format!("Response read error: {e}"))?;
 
     if !status.is_success() {
-        return Err(format!("Token exchange failed ({}): {}", status, text));
+        return Err(format!("Token exchange failed (HTTP {})", status));
     }
 
     let token: TokenResponse = serde_json::from_str(&text).map_err(|e| format!("Token parse error: {e}"))?;
     Ok(token)
 }
 
-pub async fn refresh_access_token(client: &Client, refresh_token: &str) -> Result<TokenResponse, String> {
+enum RefreshResult {
+    Success(TokenResponse),
+    TransientError(String),
+    ServerError(u16),
+    AuthFailure(Option<String>),
+    FormatError(String),
+}
+
+async fn refresh_access_token(client: &Client, refresh_token: &str) -> RefreshResult {
     let params = [
         ("client_id", CLIENT_ID),
         ("client_secret", CLIENT_SECRET),
@@ -105,36 +98,48 @@ pub async fn refresh_access_token(client: &Client, refresh_token: &str) -> Resul
         ("refresh_token", refresh_token),
     ];
 
-    let resp = client
+    let resp = match client
         .post("https://oauth.secure.pixiv.net/auth/token")
         .form(&params)
         .send()
         .await
-        .map_err(|e| format!("Token refresh failed: {e}"))?;
+    {
+        Ok(r) => r,
+        Err(e) => return RefreshResult::TransientError(format!("Token refresh failed: {e}")),
+    };
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Response read error: {e}"))?;
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => return RefreshResult::TransientError(format!("Response read error: {e}")),
+    };
 
-    if !status.is_success() {
-        return Err(format!("Token refresh failed ({}): {}", status, text));
+    if status.is_success() {
+        return match serde_json::from_str::<TokenResponse>(&text) {
+            Ok(token) => RefreshResult::Success(token),
+            Err(e) => RefreshResult::FormatError(format!("Token parse error: {e}")),
+        };
     }
 
-    let token: TokenResponse = serde_json::from_str(&text).map_err(|e| format!("Token parse error: {e}"))?;
-    Ok(token)
-}
+    let code = status.as_u16();
+    if code == 429 || code >= 500 {
+        return RefreshResult::ServerError(code);
+    }
 
-pub fn load_token_data(app: &AppHandle) -> Option<TokenData> {
-    let path = app.path().app_data_dir().ok()?.join("tokens.json");
-    let data = std::fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&data).ok()
-}
+    // 400/401: try to parse OAuth error code from body
+    if code == 400 || code == 401 {
+        #[derive(Debug, Deserialize)]
+        struct OAuthErrorBody {
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let oauth_code = serde_json::from_str::<OAuthErrorBody>(&text)
+            .ok()
+            .and_then(|b| b.error);
+        return RefreshResult::AuthFailure(oauth_code);
+    }
 
-pub fn save_token_data(app: &AppHandle, data: &TokenData) -> Result<(), String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("tokens.json");
-    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    RefreshResult::ServerError(code)
 }
 
 #[tauri::command]
@@ -158,9 +163,7 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
         .center()
         .on_navigation(move |nav_url| {
             let s = nav_url.as_str();
-            eprintln!("[OAuth nav] {}", s);
             if let Some(code) = extract_code_from_url(s) {
-                eprintln!("[OAuth code] {}", code);
                 if let Some(tx) = tx_nav.lock().unwrap().take() {
                     let _ = tx.send(Ok(code));
                 }
@@ -174,7 +177,6 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     let tx_close = tx.clone();
     let window_handle = window.clone();
     window.on_window_event(move |event| {
-        eprintln!("[OAuth event] {:?}", event);
         if let tauri::WindowEvent::Destroyed = event {
             if let Some(tx) = tx_close.lock().unwrap().take() {
                 let _ = tx.send(Err("用户取消了登录".into()));
@@ -195,8 +197,6 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
         }
     };
 
-    eprintln!("[OAuth] exchanging token for code: {}", &code[..code.len().min(8)]);
-
     // 登录成功后跳转 www.pixiv.net，建立/读取 Web 会话 cookie（Discovery 需要）
     let phpsessid = capture_phpsessid_from_window(&window_handle).await;
     window_handle.close().ok();
@@ -207,23 +207,24 @@ pub async fn start_oauth(app: AppHandle, state: tauri::State<'_, AppState>) -> R
         result?
     };
 
-    eprintln!("[OAuth] token received, user: {}", token.user.name);
+    eprintln!("[OAuth] token received");
     if phpsessid.is_some() {
         eprintln!("[OAuth] PHPSESSID captured");
     } else {
         eprintln!("[OAuth] PHPSESSID missing — Web Discovery may require re-login");
     }
 
-    let token_data = TokenData {
+    let token_data = AuthSecrets {
         refresh_token: token.refresh_token.clone(),
-        user: token.user.clone(),
         phpsessid,
     };
-    save_token_data(&app, &token_data)?;
+    let user = token.user.clone();
+    auth_store::save_auth(&app, user.clone(), &token_data)
+        .map_err(|e| e.to_string())?;
 
     *state.access_token.lock().unwrap() = Some(token.access_token);
 
-    Ok(token.user)
+    Ok(user)
 }
 
 /// 从 OAuth Webview 的 cookie jar 读取 www.pixiv.net 的 PHPSESSID
@@ -257,20 +258,12 @@ async fn capture_phpsessid_from_window(window: &tauri::WebviewWindow) -> Option<
     None
 }
 
-fn load_phpsessid(app: &AppHandle) -> Option<String> {
-    load_token_data(app)?.phpsessid.filter(|s| !s.is_empty())
-}
-
-fn save_phpsessid(app: &AppHandle, phpsessid: String) -> Result<(), String> {
-    let mut data = load_token_data(app).ok_or("未登录")?;
-    data.phpsessid = Some(phpsessid);
-    save_token_data(app, &data)
-}
-
 /// 已有 OAuth 登录但缺少 PHPSESSID 时，用隐藏 Webview 尝试从持久化 cookie 配置恢复
 async fn bootstrap_phpsessid(app: &AppHandle) -> Result<String, String> {
-    if let Some(s) = load_phpsessid(app) {
-        return Ok(s);
+    if let Some((_, secrets)) = auth_store::load_auth(app).map_err(|e| e.to_string())? {
+        if let Some(s) = secrets.phpsessid.filter(|s| !s.is_empty()) {
+            return Ok(s);
+        }
     }
 
     if let Some(existing) = app.get_webview_window("web-session") {
@@ -291,7 +284,7 @@ async fn bootstrap_phpsessid(app: &AppHandle) -> Result<String, String> {
 
     match sid {
         Some(s) => {
-            save_phpsessid(app, s.clone())?;
+            auth_store::update_phpsessid(Some(&s)).map_err(|e| e.to_string())?;
             Ok(s)
         }
         None => Err(
@@ -334,18 +327,35 @@ fn create_web_ajax_client(proxy: Option<&str>, phpsessid: &str) -> Result<Client
 
 #[tauri::command]
 pub async fn get_login_status(app: AppHandle) -> Result<Option<PixivUser>, String> {
-    Ok(load_token_data(&app).map(|d| d.user))
+    if auth_store::is_legacy_format(&app) {
+        match auth_store::migrate_legacy_auth(&app) {
+            Ok(_) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    match auth_store::load_auth(&app) {
+        Ok(Some((user, _))) => Ok(Some(user)),
+        Ok(None) => Ok(None),
+        Err(e) => {
+            if matches!(e, auth_store::AuthStoreError::Migration(_)) {
+                match auth_store::migrate_legacy_auth(&app) {
+                    Ok(_) => match auth_store::load_auth(&app) {
+                        Ok(Some((user, _))) => return Ok(Some(user)),
+                        Ok(None) => return Ok(None),
+                        Err(e2) => return Err(e2.to_string()),
+                    },
+                    Err(e2) => return Err(e2.to_string()),
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn logout(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let path = dir.join("tokens.json");
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
-    }
     *state.access_token.lock().unwrap() = None;
-    Ok(())
+    auth_store::delete_auth(&app)
 }
 
 #[derive(Debug, Deserialize)]
@@ -492,28 +502,45 @@ async fn get_or_refresh_token(app: &AppHandle, state: &AppState) -> Result<Strin
         return Ok(token);
     }
 
-    let token_data = load_token_data(app).ok_or("未登录，请先登录")?;
+    let (_, secrets) = auth_store::load_auth(app)
+        .map_err(|e| {
+            if matches!(e, auth_store::AuthStoreError::Migration(_)) {
+                "检测到旧版凭据，请重启应用以完成迁移".to_string()
+            } else {
+                e.to_string()
+            }
+        })?
+        .ok_or("未登录，请先登录")?;
+
     let client = state.client.lock().unwrap().clone().ok_or("HTTP 客户端未初始化")?;
-    let result = refresh_access_token(&client, &token_data.refresh_token).await;
+    let result = refresh_access_token(&client, &secrets.refresh_token).await;
 
     match result {
-        Ok(token_resp) => {
-            let new_data = TokenData {
-                refresh_token: token_resp.refresh_token.clone(),
-                user: token_resp.user.clone(),
-                phpsessid: token_data.phpsessid.clone(),
-            };
-            save_token_data(app, &new_data)?;
+        RefreshResult::Success(token_resp) => {
+            auth_store::update_refresh_token(&token_resp.refresh_token)
+                .map_err(|e| format!("无法保存新凭据: {e}"))?;
             let token = token_resp.access_token.clone();
             *state.access_token.lock().unwrap() = Some(token.clone());
             Ok(token)
         }
-        Err(e) => {
-            let dir = app.path().app_data_dir().map_err(|d| d.to_string()).unwrap_or_default();
-            let path = std::path::Path::new(&dir).join("tokens.json");
-            std::fs::remove_file(&path).ok();
-            *state.access_token.lock().unwrap() = None;
-            Err(format!("登录已过期，请重新登录: {e}"))
+        RefreshResult::TransientError(e) => {
+            Err(format!("网络连接失败: {e}"))
+        }
+        RefreshResult::ServerError(code) => {
+            Err(format!("Pixiv 服务暂时不可用 (HTTP {})", code))
+        }
+        RefreshResult::AuthFailure(code) => {
+            let is_invalid_grant = code.as_deref() == Some("invalid_grant");
+            if is_invalid_grant {
+                auth_store::delete_auth(app).ok();
+                *state.access_token.lock().unwrap() = None;
+                Err("登录已过期，请重新登录".into())
+            } else {
+                Err(format!("认证请求失败 (HTTP 400/401)"))
+            }
+        }
+        RefreshResult::FormatError(e) => {
+            Err(format!("响应格式异常: {e}"))
         }
     }
 }
@@ -620,7 +647,7 @@ async fn fetch_illust_detail(client: &Client, token: &str, id: u64) -> Result<Pi
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("illust detail read: {e}"))?;
     if !status.is_success() {
-        return Err(format!("illust detail {}: {}", status, text));
+        return Err(format!("illust detail request failed (HTTP {})", status));
     }
     let parsed: IllustDetailResponse =
         serde_json::from_str(&text).map_err(|e| format!("illust detail parse: {e}"))?;
@@ -711,13 +738,10 @@ async fn fetch_discovery_feed(
     if !status.is_success() {
         // cookie 失效时清掉并提示重登
         if status.as_u16() == 401 || status.as_u16() == 403 || text.contains("login") {
-            if let Some(mut data) = load_token_data(app) {
-                data.phpsessid = None;
-                let _ = save_token_data(app, &data);
-            }
+            auth_store::update_phpsessid(None).ok();
             return Err("网页登录态已失效，请重新登录以使用推荐流".into());
         }
-        return Err(format!("Discovery returned {}: {}", status, &text[..text.len().min(300)]));
+        return Err(format!("Discovery returned (HTTP {})", status));
     }
 
     let parsed: DiscoveryAjaxResponse =
@@ -883,7 +907,7 @@ pub async fn fetch_feed(
     let text = resp.text().await.map_err(|e| format!("Response read: {e}"))?;
 
     if !status.is_success() {
-        return Err(format!("API returned {}: {}", status, text));
+        return Err(format!("API request failed (HTTP {})", status));
     }
 
     let feed: PixivFeedResponse =
@@ -1265,12 +1289,10 @@ async fn bookmark_add(state: &AppState, token: &str, illust_id: u64) -> Result<(
             .map_err(|e| format!("bookmark add request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            eprintln!("bookmark_add failed ({}): {}", status, text);
-            return Err(format!("bookmark add failed ({}): {}", status, text));
+            return Err(format!("bookmark add failed (HTTP {})", status));
         }
-        eprintln!("bookmark_add OK illust_id={illust_id} body={text}");
+        eprintln!("bookmark_add OK illust_id={illust_id}");
     }
     Ok(())
 }
@@ -1287,12 +1309,10 @@ async fn bookmark_delete(state: &AppState, token: &str, illust_id: u64) -> Resul
             .map_err(|e| format!("bookmark delete request failed: {e}"))?;
 
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            eprintln!("bookmark_delete failed ({}): {}", status, text);
-            return Err(format!("bookmark delete failed ({}): {}", status, text));
+            return Err(format!("bookmark delete failed (HTTP {})", status));
         }
-        eprintln!("bookmark_delete OK illust_id={illust_id} body={text}");
+        eprintln!("bookmark_delete OK illust_id={illust_id}");
     }
     Ok(())
 }

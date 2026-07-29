@@ -2,6 +2,7 @@ mod http;
 mod pixiv_api;
 mod compress;
 mod download;
+mod auth_store;
 
 use pixiv_api::AppState;
 use std::sync::Mutex;

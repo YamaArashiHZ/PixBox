@@ -26,3 +26,4 @@ url = "2"
 getrandom = "0.2"
 image = "0.25"
 chrono = "0.4"
+keyring = { version = "4", features = ["v1"] }
