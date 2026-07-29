@@ -61,7 +61,12 @@ jobs:
             exit 1
           fi
 
-          release="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$tag\")")"
+          release=""
+          for attempt in {1..6}; do
+            release="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$tag\")")"
+            [[ -n "$release" ]] && break
+            sleep $((attempt * 2))
+          done
           if [[ -z "$release" ]]; then
             echo "Draft release $tag was not found." >&2
             exit 1

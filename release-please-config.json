@@ -20,9 +20,8 @@
           "jsonpath": "$.package.version"
         },
         {
-          "type": "toml",
-          "path": "src-tauri/Cargo.lock",
-          "jsonpath": "$.package[?(@.name == 'pixbox')].version"
+          "type": "generic",
+          "path": "src-tauri/Cargo.lock"
         }
       ]
     }
