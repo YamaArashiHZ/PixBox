@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/YamaArashiHZ/PixBox/compare/v0.2.2...v0.3.0) (2026-07-29)
+
+
+### Features
+
+* 替换应用图标与侧边栏品牌标识 ([1493954](https://github.com/YamaArashiHZ/PixBox/commit/14939541934f9d003ced1553fe8bff115d40db3a))
+
 ## [0.2.2](https://github.com/YamaArashiHZ/PixBox/compare/v0.2.1...v0.2.2) (2026-07-29)
 
 
