@@ -42,7 +42,7 @@ jobs:
     needs: release-please
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
       tag_name: ${{ steps.release.outputs.tag_name }}
