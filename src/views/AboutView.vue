@@ -14,14 +14,14 @@ const links = [
     key: "github",
     label: "GitHub",
     desc: "项目仓库",
-    url: "https://github.com",
+    url: "https://github.com/YamaArashiHZ/PixBox",
     icon: LogoGithub,
   },
   {
     key: "bilibili",
     label: "Bilibili",
     desc: "作者空间",
-    url: "https://space.bilibili.com",
+    url: "https://space.bilibili.com/319279623",
     icon: LinkOutline,
   },
 ] as const;
