@@ -24,6 +24,7 @@ Thumbs.db
 
 # Project docs
 .opencode
+.docs
 pixbox.md
 ref/
 run_dev.bat
