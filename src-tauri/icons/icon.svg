@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">PixBox</title>
+  <desc id="desc">A minimal white focus frame around a violet picture on blue.</desc>
+  <defs>
+    <linearGradient id="bg" x1="45" y1="46" x2="467" y2="466" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#397BEF"/>
+      <stop offset="1" stop-color="#6F55EA"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="156" y1="151" x2="362" y2="369" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE8FF"/>
+      <stop offset="1" stop-color="#FFF"/>
+    </linearGradient>
+    <filter id="shadow" x="70" y="70" width="372" height="380" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#17318A" flood-opacity=".3"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <rect x="126" y="126" width="260" height="260" rx="58" fill="#FFF" fill-opacity=".16" stroke="#FFF" stroke-width="18"/>
+    <rect x="156" y="156" width="200" height="200" rx="36" fill="url(#panel)"/>
+    <path d="M156 310l59-66a18 18 0 0127 0l31 34 19-20a18 18 0 0127 1l37 44v17c0 20-16 36-36 36H192c-20 0-36-16-36-36v-10z" fill="#5B7CFA"/>
+    <circle cx="298" cy="211" r="25" fill="#7657F6"/>
+  </g>
+  <path d="M105 173v-38c0-17 13-30 30-30h38M339 105h38c17 0 30 13 30 30v38M407 339v38c0 17-13 30-30 30h-38M173 407h-38c-17 0-30-13-30-30v-38" fill="none" stroke="#FFF" stroke-width="18" stroke-linecap="round"/>
+</svg>

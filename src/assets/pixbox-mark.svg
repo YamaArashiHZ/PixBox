@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="PixBox">
+  <defs>
+    <linearGradient id="pixbox-mark-bg" x1="3" y1="3" x2="37" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#397BEF"/>
+      <stop offset="1" stop-color="#6F55EA"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="12" fill="url(#pixbox-mark-bg)"/>
+  <g fill="none" stroke="#FFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="13.5" cy="19.5" r="5.5"/>
+    <path d="M8 19.5V30"/>
+    <circle cx="27" cy="21.5" r="5.5"/>
+    <path d="M21.5 10v11.5"/>
+  </g>
+</svg>

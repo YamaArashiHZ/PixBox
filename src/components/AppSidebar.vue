@@ -8,6 +8,7 @@ import {
   SunnyOutline,
 } from "@vicons/ionicons5";
 import type { AppPage, ThemeMode } from "../types";
+import pixboxMark from "../assets/pixbox-mark.svg";
 
 defineProps<{
   current: AppPage;
@@ -22,7 +23,7 @@ const emit = defineEmits<{
 
 <template>
   <aside class="sidebar">
-    <div class="brand" title="PixBox">PB</div>
+    <img class="brand" :src="pixboxMark" alt="PixBox" title="PixBox" />
 
     <nav class="nav-top">
       <n-tooltip placement="right" :delay="400">
@@ -111,16 +112,10 @@ const emit = defineEmits<{
 .brand {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #fff;
-  background: linear-gradient(135deg, #4f7cff 0%, #7b5cff 100%);
+  display: block;
   margin-bottom: 10px;
   user-select: none;
+  -webkit-user-drag: none;
 }
 
 .nav-top {

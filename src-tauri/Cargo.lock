@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "pixbox"
-version = "0.2.2" # x-release-please-version
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
