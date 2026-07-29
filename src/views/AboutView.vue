@@ -1,13 +1,27 @@
 <script setup lang="ts">
-import { NCard, NSpace, NText, NTag, NIcon, NButton, useMessage } from "naive-ui";
-import { LogoGithub, LinkOutline } from "@vicons/ionicons5";
+import { onMounted, ref } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
+import { isTauri } from "@tauri-apps/api/core";
+import { NButton, NCard, NIcon, NSpace, NTag, NText, useMessage } from "naive-ui";
+import { CloudDownloadOutline, LinkOutline, LogoGithub } from "@vicons/ionicons5";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useUpdater } from "../composables/useUpdater";
 
 const message = useMessage();
+const { checking, installing, checkManually } = useUpdater();
 
 const APP_NAME = "PixBox";
-const APP_VERSION = "v0.1.0";
 const APP_AUTHOR = "YamaArashi";
+const appVersion = ref("0.1.0");
+
+onMounted(async () => {
+  if (!isTauri()) return;
+  try {
+    appVersion.value = await getVersion();
+  } catch {
+    // The package version remains a development fallback.
+  }
+});
 
 const links = [
   {
@@ -49,8 +63,21 @@ async function openLink(url: string) {
           </div>
           <div class="info-item">
             <n-text depth="3" class="info-label">版本</n-text>
-            <div class="info-value">
-              <n-tag size="small" type="info" :bordered="false">{{ APP_VERSION }}</n-tag>
+            <div class="info-value version-value">
+              <n-tag size="small" type="info" :bordered="false">v{{ appVersion }}</n-tag>
+              <n-button
+                size="tiny"
+                secondary
+                type="primary"
+                :loading="checking"
+                :disabled="installing"
+                @click="checkManually"
+              >
+                <template #icon>
+                  <n-icon :component="CloudDownloadOutline" />
+                </template>
+                {{ installing ? "正在安装" : "检查更新" }}
+              </n-button>
             </div>
           </div>
           <div class="info-item">
@@ -128,6 +155,12 @@ async function openLink(url: string) {
   font-size: 14px;
   font-weight: 600;
   word-break: break-all;
+}
+
+.version-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .links-block {

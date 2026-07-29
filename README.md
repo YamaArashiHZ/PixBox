@@ -27,9 +27,48 @@ Pixiv 每日存图助手 — Windows 桌面应用。浏览关注/推荐流、筛
 ## 构建
 
 ```powershell
-npm install
+npm ci
+npm run check:versions
 npm run build
+cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
+
+## 发布
+
+项目使用 Release Please 维护 Release PR。提交消息需遵循 Conventional Commits，例如 `fix: ...`、`feat: ...` 或包含破坏性变更的 `feat!: ...`。合并 Release PR 后，GitHub Actions 会执行以下步骤：
+
+1. 创建带 `v` 前缀的 Git tag 和草稿 GitHub Release。
+2. 在 `release` Environment 中读取更新签名密钥，构建 Windows x64 NSIS 安装包。
+3. 校验安装包、签名和 `latest.json` 完整且版本一致。
+4. 仅在全部校验通过后公开 Release，并设为 latest。
+
+若构建或上传失败，Release 会保持草稿状态。修复配置后可手动运行 `Release` workflow，并在 `release_tag` 中填写现有草稿标签以安全重试；工作流只接受可从 `master` 到达的标签。
+
+首次启用发布前需要完成以下配置：
+
+1. 将仓库推送到 `YamaArashiHZ/PixBox`，默认分支保持为 `master`。
+2. 在 GitHub 仓库的 `Settings > Environments` 创建名为 `release` 的 Environment。
+3. 在该 Environment 中添加 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 两个 secret。
+4. 在 `Settings > Actions > General` 启用 GitHub Actions 创建 Pull Request 的权限。
+
+建议为 `release` Environment 配置 required reviewer。签名私钥只应存在于离线备份和 GitHub Environment secrets 中，不能提交到仓库。
+
+### 更新签名密钥
+
+在 PowerShell 中生成独立的 Tauri 更新密钥：
+
+```powershell
+npm run tauri -- signer generate -w "$HOME\.tauri\pixbox.key"
+```
+
+命令会创建私钥 `pixbox.key` 和公钥 `pixbox.key.pub`。随后：
+
+1. 将 `pixbox.key` 的完整内容写入 Environment secret `TAURI_SIGNING_PRIVATE_KEY`。
+2. 将生成时设置的密码写入 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+3. 将 `pixbox.key.pub` 的完整内容写入 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`。
+4. 运行 `npm run check:versions -- --release` 验证发布配置。
+
+公钥可以公开；私钥丢失后，已安装版本将无法验证后续更新，因此必须保留安全的离线备份。Tauri 更新签名密钥只负责更新包完整性，不替代 Windows Authenticode 代码签名证书。
 
 ## 许可
 

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicovrc/tauri-docs/v2/tauri.conf.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "PixBox",
   "version": "0.1.0",
   "identifier": "com.pixbox.app",
@@ -25,14 +25,39 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5QUQ4N0E2MkUyNUFCRkQKUldUOXF5VXVwb2V0R1lPcXJhcTRnaXdZcFR3RHBxS2JLMjR3eXVCSUpYRTE3aEo3clMrRjRtTFkK",
+      "endpoints": [
+        "https://github.com/YamaArashiHZ/PixBox/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "YamaArashi",
+    "copyright": "Copyright (c) 2026 YamaArashi",
+    "license": "MIT",
+    "shortDescription": "Pixiv 每日存图助手",
+    "longDescription": "PixBox 是一款用于浏览 Pixiv 关注与推荐流、保存原图并生成压缩备份的 Windows 桌面应用。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser"
+      }
+    }
   }
 }

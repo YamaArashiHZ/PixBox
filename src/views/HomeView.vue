@@ -33,7 +33,7 @@ const cloneVisible = ref(false);
 const cloneSrc = ref("");
 const cloneEl = ref<HTMLElement | null>(null);
 const cloneCurrent = ref({ left: "0px", top: "0px", width: "0px", height: "0px", borderRadius: "12px" });
-const saving = ref(false);
+const saving = computed(() => feed.saving);
 const saveProgress = ref<number | null>(null);
 
 const { hasPathConflict } = useAppConfig();
@@ -388,7 +388,7 @@ function lightboxNavigate(dir: -1 | 1) {
 
 async function handleSave() {
   if (saving.value || selectedItems.value.length === 0) return;
-  saving.value = true;
+  feed.saving = true;
   saveProgress.value = 0;
 
   const items = selectedItems.value.map((i) => ({
@@ -420,7 +420,7 @@ async function handleSave() {
   } catch (e) {
     message.error(String(e));
   } finally {
-    saving.value = false;
+    feed.saving = false;
     saveProgress.value = null;
   }
 }

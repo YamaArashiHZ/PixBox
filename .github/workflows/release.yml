@@ -1,0 +1,200 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing draft release tag to retry, for example v0.2.0
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Prepare release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Create or update Release PR
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  resolve-release:
+    name: Resolve draft release
+    if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || inputs.release_tag != '') }}
+    needs: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Find draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          CREATED_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          tag="${REQUESTED_TAG:-$CREATED_TAG}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+
+          release="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$tag\")")"
+          if [[ -z "$release" ]]; then
+            echo "Draft release $tag was not found." >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.draft' <<< "$release")" != "true" ]]; then
+            echo "Release $tag is already published." >&2
+            exit 1
+          fi
+
+          echo "release_id=$(jq -r '.id' <<< "$release")" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Require release tag on master
+        run: |
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor HEAD origin/master; then
+            echo "Release tag is not reachable from master." >&2
+            exit 1
+          fi
+
+  build-windows:
+    name: Build signed Windows release
+    if: needs.resolve-release.result == 'success'
+    needs: resolve-release
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-release.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Require signing secrets
+        shell: pwsh
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY)) { throw "TAURI_SIGNING_PRIVATE_KEY is missing." }
+          if ([string]::IsNullOrEmpty($env:SIGNING_PASSWORD)) { throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is missing." }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate release version and updater configuration
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag_name }}
+        run: npm run check:versions -- --tag "$env:RELEASE_TAG" --release
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Build, sign, and upload updater artifacts
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.resolve-release.outputs.release_id }}
+          tagName: ${{ needs.resolve-release.outputs.tag_name }}
+          releaseDraft: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true
+          retryAttempts: 2
+          tauriScript: npm run tauri
+          args: --bundles nsis --target x86_64-pc-windows-msvc
+
+      - name: Verify release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.resolve-release.outputs.release_id }}
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.resolve-release.outputs.version }}
+        run: |
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if (-not $release.draft) { throw "Release was published before validation completed." }
+          if ($release.tag_name -ne $env:RELEASE_TAG) { throw "Resolved release has the wrong tag." }
+          if ($release.assets | Where-Object { $_.state -ne "uploaded" -or $_.size -le 0 }) { throw "One or more release assets are incomplete." }
+
+          $names = @($release.assets | ForEach-Object { $_.name })
+          if ($names -notcontains "latest.json") { throw "latest.json is missing." }
+          $installers = @($names | Where-Object { $_ -like "*.exe" })
+          $signatures = @($names | Where-Object { $_ -like "*.exe.sig" })
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer." }
+          if ($signatures.Count -ne 1) { throw "Expected exactly one updater signature." }
+
+          $latestAsset = $release.assets | Where-Object { $_.name -eq "latest.json" } | Select-Object -First 1
+          $latest = gh api -H "Accept: application/octet-stream" "repos/$env:GITHUB_REPOSITORY/releases/assets/$($latestAsset.id)" | ConvertFrom-Json
+          if ($latest.version -ne $env:RELEASE_VERSION) { throw "latest.json contains the wrong version." }
+
+          $windows = $latest.platforms.'windows-x86_64'
+          if (-not $windows.url -or -not $windows.signature) { throw "latest.json is missing the Windows x64 update." }
+          if ($windows.url -notlike "*/releases/download/$env:RELEASE_TAG/*") { throw "latest.json points to the wrong release." }
+          if ([Uri]::UnescapeDataString($windows.url) -notlike "*/$($installers[0])") { throw "latest.json points to the wrong installer." }
+
+          $signatureAsset = $release.assets | Where-Object { $_.name -eq $signatures[0] } | Select-Object -First 1
+          $signature = gh api -H "Accept: application/octet-stream" "repos/$env:GITHUB_REPOSITORY/releases/assets/$($signatureAsset.id)"
+          if ($signature.Trim() -ne $windows.signature.Trim()) { throw "latest.json contains the wrong updater signature." }
+
+      - name: Publish verified release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.resolve-release.outputs.release_id }}
+        run: |
+          gh api --method PATCH "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID" `
+            --field draft=false --field prerelease=false --raw-field make_latest=true

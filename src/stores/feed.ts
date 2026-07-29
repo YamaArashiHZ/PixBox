@@ -15,6 +15,7 @@ export const useFeedStore = defineStore('feed', () => {
   const nextUrl = ref<string | null>(null)
   const loading = ref(false)
   const refreshing = ref(false)
+  const saving = ref(false)
   const error = ref<string | null>(null)
   const selectedKeys = ref<Set<string>>(new Set())
   const selectedItemsList = ref<FeedItem[]>([])
@@ -265,6 +266,7 @@ export const useFeedStore = defineStore('feed', () => {
     nextUrl,
     loading,
     refreshing,
+    saving,
     error,
     contentMode,
     selectedKeys,

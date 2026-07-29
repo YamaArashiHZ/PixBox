@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "check:versions": "node scripts/check-versions.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -15,6 +16,7 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-shell": "^2.2.0",
     "@tauri-apps/plugin-store": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@vicons/ionicons5": "^0.13.0",
     "naive-ui": "^2.44.1",
     "overlayscrollbars": "^2.16.0",

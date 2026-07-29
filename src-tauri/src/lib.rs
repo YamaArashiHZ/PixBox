@@ -1,13 +1,13 @@
-mod http;
-mod pixiv_api;
+mod auth_store;
 mod compress;
 mod download;
-mod auth_store;
+mod http;
+mod pixiv_api;
 
 use pixiv_api::AppState;
 use std::sync::Mutex;
-use tauri::Manager;
 use tauri::AppHandle;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,6 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             let proxy = load_proxy_setting(&handle);
