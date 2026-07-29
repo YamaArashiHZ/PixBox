@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/YamaArashiHZ/PixBox/compare/v0.2.0...v0.2.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* 修复发布版本同步与草稿解析 ([0b2d8f0](https://github.com/YamaArashiHZ/PixBox/commit/0b2d8f0d93d01a7d3fa177a48487f333ddd1d3a4))
+* 允许发布任务读取草稿版本 ([475a208](https://github.com/YamaArashiHZ/PixBox/commit/475a208893eeb71f85aa1aabbdcb498e482d53e3))
+* 允许手动重试发布构建 ([a89259f](https://github.com/YamaArashiHZ/PixBox/commit/a89259fe7cc1afb47928316eb97b223facdd64bf))
+
 ## [0.2.0](https://github.com/YamaArashiHZ/PixBox/compare/v0.1.0...v0.2.0) (2026-07-29)
 
 
