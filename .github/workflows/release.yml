@@ -96,7 +96,7 @@ jobs:
 
   build-windows:
     name: Build signed Windows release
-    if: needs.resolve-release.result == 'success'
+    if: ${{ always() && needs.resolve-release.result == 'success' }}
     needs: resolve-release
     runs-on: windows-latest
     environment: release
