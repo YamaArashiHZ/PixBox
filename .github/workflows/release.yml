@@ -188,8 +188,13 @@ jobs:
 
           $windows = $latest.platforms.'windows-x86_64'
           if (-not $windows.url -or -not $windows.signature) { throw "latest.json is missing the Windows x64 update." }
-          if ($windows.url -notlike "*/releases/download/$env:RELEASE_TAG/*") { throw "latest.json points to the wrong release." }
-          if ([Uri]::UnescapeDataString($windows.url) -notlike "*/$($installers[0])") { throw "latest.json points to the wrong installer." }
+
+          $installerAsset = $release.assets | Where-Object { $_.name -eq $installers[0] } | Select-Object -First 1
+          $expectedAssetUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/assets/$($installerAsset.id)"
+          $decodedUrl = [Uri]::UnescapeDataString($windows.url)
+          $matchesApiAsset = $decodedUrl -eq $expectedAssetUrl
+          $matchesDownloadAsset = $decodedUrl -like "*/releases/download/$env:RELEASE_TAG/$($installers[0])"
+          if (-not ($matchesApiAsset -or $matchesDownloadAsset)) { throw "latest.json points to the wrong installer." }
 
           $signatureAsset = $release.assets | Where-Object { $_.name -eq $signatures[0] } | Select-Object -First 1
           $signature = gh api -H "Accept: application/octet-stream" "repos/$env:GITHUB_REPOSITORY/releases/assets/$($signatureAsset.id)"
