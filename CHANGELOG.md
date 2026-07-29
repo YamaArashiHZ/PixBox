@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/YamaArashiHZ/PixBox/compare/v0.3.0...v0.3.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* 同步Cargo锁文件版本 ([a74c5b6](https://github.com/YamaArashiHZ/PixBox/commit/a74c5b63ec4459f11508f1d3a34ed90457afee1c))
+
 ## [0.3.0](https://github.com/YamaArashiHZ/PixBox/compare/v0.2.2...v0.3.0) (2026-07-29)
 
 
