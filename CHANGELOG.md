@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/YamaArashiHZ/PixBox/compare/v0.2.1...v0.2.2) (2026-07-29)
+
+
+### Bug Fixes
+
+* 校验更新清单中的 GitHub 资产地址 ([60e6250](https://github.com/YamaArashiHZ/PixBox/commit/60e62504b9c9d0ab6be163eacd4ef52aa24f86f3))
+
 ## [0.2.1](https://github.com/YamaArashiHZ/PixBox/compare/v0.2.0...v0.2.1) (2026-07-29)
 
 
